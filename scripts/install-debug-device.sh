@@ -6,14 +6,13 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
 pick_adb() {
+  local sdk_adb="$HOME/Library/Android/sdk/platform-tools/adb"
   if [[ -n "${ANDROID_HOME:-}" && -x "$ANDROID_HOME/platform-tools/adb" ]]; then
     echo "$ANDROID_HOME/platform-tools/adb"
-  elif [[ -x "$HOME/Library/Android/sdk/platform-tools/adb" ]]; then
-    echo "$HOME/Library/Android/sdk/platform-tools/adb"
-  elif command -v adb >/dev/null 2>&1; then
-    command -v adb
+  elif [[ -x "$sdk_adb" ]]; then
+    echo "$sdk_adb"
   else
-    echo "Install platform-tools: brew install --cask android-platform-tools" >&2
+    echo "Install Android SDK platform-tools (Android Studio → SDK Manager)." >&2
     exit 1
   fi
 }
@@ -21,10 +20,12 @@ pick_adb() {
 ADB="$(pick_adb)"
 echo "Using adb: $ADB"
 
-# Avoid mixed adb daemons (common cause of 'protocol fault' on macOS).
+# Avoid mixed adb daemons (common cause of 'protocol fault' on macOS). Do not use Homebrew adb here.
 if command -v pkill >/dev/null 2>&1; then
   pkill -9 adb 2>/dev/null || true
 fi
+export PATH="$HOME/Library/Android/sdk/platform-tools:$PATH"
+echo "adb on PATH (first 3):"; which -a adb 2>/dev/null | head -3 || true
 "$ADB" kill-server 2>/dev/null || true
 sleep 1
 "$ADB" start-server
