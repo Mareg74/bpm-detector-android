@@ -104,7 +104,7 @@ class NoveltyBpmEstimator(
             val halfLag = (refinedLag / 2.0).toInt()
             if (halfLag >= lagMin && halfLag <= lagMax) {
                 val corrHalf = corrByLag[halfLag]
-                if (corrHalf >= bestCorr * 0.68) {
+                if (corrHalf >= bestCorr * 0.52) {
                     refinedLag = halfLag.toDouble()
                     if (halfLag - 1 >= lagMin && halfLag + 1 <= lagMax) {
                         val cL = corrByLag[halfLag - 1]
@@ -148,7 +148,9 @@ class NoveltyBpmEstimator(
 
         val alpha = if (genre == NoveltyAnalyzer.NoveltyGenre.Acoustic) 0.35 else 0.20
         smoothedBpm =
-            smoothedBpm?.let { (1 - alpha) * it + alpha * bpm } ?: bpm
+            smoothedBpm?.let { prev ->
+                if (abs(bpm - prev) > 28) bpm else (1 - alpha) * prev + alpha * bpm
+            } ?: bpm
         val confidence =
             ((bestCorr * 80).coerceIn(0.0, 1.0) + if (beatTimes.size >= 6) 0.25 else 0.0)
                 .coerceIn(0.0, 1.0)
