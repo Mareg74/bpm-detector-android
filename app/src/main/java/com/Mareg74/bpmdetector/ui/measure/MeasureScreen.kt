@@ -41,13 +41,14 @@ import com.Mareg74.bpmdetector.domain.MeasureState
 @Composable
 fun MeasureScreen(
     viewModel: MeasureViewModel,
+    onStartMeasurement: () -> Unit = viewModel::startMeasurement,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var settingsOpen by remember { mutableStateOf(false) }
     MeasureScreenContent(
         uiState = uiState,
-        onStart = viewModel::startMeasurement,
+        onStart = onStartMeasurement,
         onStop = viewModel::stopMeasurement,
         onOpenSettings = { settingsOpen = true },
         onSecondaryVisibleChange = viewModel::setSecondaryVisible,
@@ -128,7 +129,10 @@ fun MeasureScreenContent(
                     text = message,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 12.dp),
+                    modifier =
+                        Modifier
+                            .padding(top = 12.dp)
+                            .testTag("error_banner"),
                 )
             }
         }

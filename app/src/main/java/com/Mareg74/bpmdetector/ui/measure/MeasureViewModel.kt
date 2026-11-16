@@ -1,5 +1,6 @@
 package com.Mareg74.bpmdetector.ui.measure
 
+import android.media.projection.MediaProjection
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -7,6 +8,7 @@ import com.Mareg74.bpmdetector.audio.AudioError
 import com.Mareg74.bpmdetector.audio.AudioInput
 import com.Mareg74.bpmdetector.audio.AudioInputFactory
 import com.Mareg74.bpmdetector.audio.AudioSourceKind
+import com.Mareg74.bpmdetector.audio.InternalCaptureAudioInput
 import com.Mareg74.bpmdetector.data.SettingsStore
 import com.Mareg74.bpmdetector.data.ThemeMode
 import com.Mareg74.bpmdetector.data.UserSettings
@@ -109,7 +111,17 @@ class MeasureViewModel(
     createInput: (AudioSourceKind) -> AudioInput = { audioInputFactory.create(it) },
     availabilityProbe: () -> Map<AudioSourceKind, Boolean> = { audioInputFactory.availability() },
 ) : ViewModel() {
+    companion object {
+        const val RECORD_AUDIO_DENIED_BANNER =
+            "Microphone permission is required. Grant RECORD_AUDIO in Settings to measure."
+        const val MEDIA_PROJECTION_DENIED_BANNER =
+            "Screen capture permission is required for internal playback capture."
+        const val INTERNAL_UNSUPPORTED_BANNER =
+            "Internal playback capture is not supported on this device (requires Android 10+)."
+    }
+
     private val openInput = createInput
+    private var mediaProjection: MediaProjection? = null
 
     private val _uiState =
         MutableStateFlow(
@@ -144,6 +156,15 @@ class MeasureViewModel(
         _uiState.update { it.copy(errorBanner = null) }
     }
 
+    fun attachMediaProjection(projection: MediaProjection) {
+        releaseMediaProjection()
+        mediaProjection = projection
+    }
+
+    fun reportStartBlocked(message: String) {
+        _uiState.update { it.copy(errorBanner = message) }
+    }
+
     fun updateSettings(transform: (UserSettings) -> UserSettings) {
         viewModelScope.launch {
             settingsStore.update(transform)
@@ -158,6 +179,9 @@ class MeasureViewModel(
         engine.reset()
 
         val input = openInput(settings.source)
+        if (input is InternalCaptureAudioInput) {
+            mediaProjection?.let { input.attachMediaProjection(it) }
+        }
         activeInput = input
 
         _uiState.update {
@@ -211,6 +235,7 @@ class MeasureViewModel(
         measureJob = null
         activeInput?.stop()
         activeInput = null
+        releaseMediaProjection()
         session.freeze()
         _uiState.update { current ->
             current.copy(
@@ -222,6 +247,11 @@ class MeasureViewModel(
                 history = session.snapshot(),
             )
         }
+    }
+
+    private fun releaseMediaProjection() {
+        mediaProjection?.stop()
+        mediaProjection = null
     }
 
     private suspend fun handleAudioError(error: AudioError) {
@@ -247,6 +277,7 @@ class MeasureViewModel(
         measureJob = null
         activeInput?.stop()
         activeInput = null
+        releaseMediaProjection()
         session.freeze()
         _uiState.update { current ->
             current.copy(
@@ -263,15 +294,26 @@ class MeasureViewModel(
 
     private fun errorBannerFor(error: AudioError): String =
         when (error) {
-            AudioError.PermissionDenied ->
-                "Microphone permission is required. Grant RECORD_AUDIO in Settings to measure."
-            is AudioError.SourceUnavailable -> error.message
+            AudioError.PermissionDenied -> RECORD_AUDIO_DENIED_BANNER
+            is AudioError.SourceUnavailable -> sourceUnavailableBanner(error)
             is AudioError.Disconnected ->
                 when (error.kind) {
                     AudioSourceKind.Usb -> "USB audio disconnected."
                     AudioSourceKind.Internal -> "Internal capture ended."
                     AudioSourceKind.Mic -> "Microphone disconnected."
                 }
+        }
+
+    private fun sourceUnavailableBanner(error: AudioError.SourceUnavailable): String =
+        when (error.kind) {
+            AudioSourceKind.Internal ->
+                when {
+                    !InternalCaptureAudioInput.isSupported() -> INTERNAL_UNSUPPORTED_BANNER
+                    error.message.contains("MediaProjection", ignoreCase = true) ->
+                        MEDIA_PROJECTION_DENIED_BANNER
+                    else -> error.message
+                }
+            else -> error.message
         }
 
     private fun shiftWaveform(

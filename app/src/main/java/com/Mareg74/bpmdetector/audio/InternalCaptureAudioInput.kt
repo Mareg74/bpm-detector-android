@@ -28,8 +28,8 @@ import kotlin.math.sqrt
  * Captures device playback via [AudioPlaybackCaptureConfiguration] (Android 10 / API 29+).
  *
  * [MediaProjection] must be granted from an Activity ([android.media.projection.MediaProjectionManager]
- * consent dialog). Task 13 will wire that UX; until then call [attachMediaProjection] after the
- * user approves capture, or [start] will emit [AudioError.SourceUnavailable].
+ * consent dialog). [MainActivity] requests MediaProjection before [start]; without consent,
+ * [start] emits [AudioError.SourceUnavailable].
  */
 class InternalCaptureAudioInput(
     private val context: Context,
@@ -74,7 +74,7 @@ class InternalCaptureAudioInput(
                 _errors.emit(
                     AudioError.SourceUnavailable(
                         AudioSourceKind.Internal,
-                        "Playback capture requires MediaProjection consent (wired in Task 13)",
+                        "Screen capture permission is required for internal playback capture.",
                     ),
                 )
                 return
