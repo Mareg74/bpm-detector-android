@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +50,7 @@ fun MeasureScreen(
         onStart = viewModel::startMeasurement,
         onStop = viewModel::stopMeasurement,
         onOpenSettings = { settingsOpen = true },
+        onSecondaryVisibleChange = viewModel::setSecondaryVisible,
         modifier = modifier,
     )
     if (settingsOpen) {
@@ -82,6 +85,7 @@ fun MeasureScreenContent(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onOpenSettings: () -> Unit = {},
+    onSecondaryVisibleChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val measuring = uiState.state != MeasureState.Idle
@@ -128,6 +132,20 @@ fun MeasureScreenContent(
                 )
             }
         }
+        if (uiState.secondaryVisible) {
+            Column(
+                modifier =
+                    Modifier
+                        .weight(0.9f)
+                        .fillMaxHeight()
+                        .widthIn(min = 160.dp, max = 280.dp)
+                        .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+            ) {
+                WaveformPanel(waveform = uiState.waveform)
+                HistoryPanel(history = uiState.history)
+            }
+        }
         Column(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
@@ -143,6 +161,12 @@ fun MeasureScreenContent(
                 modifier = Modifier.testTag("settings"),
             ) {
                 Text("Settings")
+            }
+            TextButton(
+                onClick = { onSecondaryVisibleChange(!uiState.secondaryVisible) },
+                modifier = Modifier.testTag("secondary_toggle"),
+            ) {
+                Text(if (uiState.secondaryVisible) "Hide panels" else "Show panels")
             }
         }
     }
