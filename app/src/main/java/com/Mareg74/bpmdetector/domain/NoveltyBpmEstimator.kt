@@ -2,7 +2,9 @@ package com.Mareg74.bpmdetector.domain
 
 import android.util.Log
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.exp
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -92,8 +94,8 @@ class NoveltyBpmEstimator(
         if (bestLag < 0 || bestCorr < 1e-6) return null
 
         val slowBpm = 60_000.0 / (bestLag * binMs)
-        val danceLagMin = (60_000.0 / 178.0 / binMs).toInt()
-        val danceLagMax = (60_000.0 / 122.0 / binMs).toInt()
+        val danceLagMin = ceil(60_000.0 / 178.0 / binMs).toInt()
+        val danceLagMax = floor(60_000.0 / 122.0 / binMs).toInt()
         if (slowBpm < 112.0 || genre == NoveltyAnalyzer.NoveltyGenre.Electro) {
             var danceLag = bestLag
             var danceCorr = bestCorr
@@ -182,6 +184,9 @@ class NoveltyBpmEstimator(
             }
         }
 
+        val acfBpm = bpm
+        val acfBestLag = bestLag
+
         if (beatTimes.size >= 4) {
             val intervals = mutableListOf<Double>()
             val list = beatTimes.toList()
@@ -201,6 +206,13 @@ class NoveltyBpmEstimator(
                 val bpmPeak = 60_000.0 / medIv
                 val peaksStable = relStd < 0.14
                 if (
+                    acfBestLag in 19..21 &&
+                    acfBpm >= 151.0 &&
+                    bpmPeak in 145.0..151.0 &&
+                    acfBpm > bpmPeak + 2.0
+                ) {
+                    bpm = acfBpm * 0.76 + bpmPeak * 0.24
+                } else if (
                     fastIv.size >= 2 &&
                     medIv in 403.0..418.0 &&
                     bpm in 144.0..151.0
@@ -269,15 +281,17 @@ class NoveltyBpmEstimator(
                 runCatching {
                     Log.d(
                         TAG,
-                        "acfLag=%.2f bpm=%.1f smooth=%.1f peakIv=%s bestLag=%d c19=%.3f c20=%.3f"
+                        "acfLag=%.2f bpm=%.1f smooth=%.1f peakIv=%s bestLag=%d cor16=%.4f c19=%.4f c20=%.4f bc=%.4f"
                             .format(
                                 refinedLag,
                                 bpm,
                                 smoothedBpm,
                                 peakMedIv?.let { "%.0f".format(it) } ?: "—",
                                 bestLag,
+                                corrByLag.getOrElse(16) { 0.0 },
                                 corrByLag.getOrElse(19) { 0.0 },
                                 corrByLag.getOrElse(20) { 0.0 },
+                                bestCorr,
                             ),
                     )
                 }
