@@ -74,54 +74,138 @@ class BpmEngine(private var profile: GenreProfile) {
         }
         val noveltyEstimate = noveltyEstimator.estimate()
 
+        var beatPulse = newOnsets.isNotEmpty()
+        if (noveltyEstimate == null) {
+            if (noveltyEstimator.isWarmingUp()) {
+                return BpmReading(
+                    bpm =
+                        when (state) {
+                            MeasureState.Tracking -> lockedBpm
+                            MeasureState.Resyncing -> lockedBpm
+                            else -> null
+                        },
+                    confidence = 0.0,
+                    state = state,
+                    beatPulse = beatPulse,
+                    timestampMs = nowMs,
+                )
+            }
+            return pushOnsetFallback(newOnsets, nowMs, beatPulse)
+        }
+        gateNoveltyBpm(noveltyEstimate.first, nowMs)
+        val displayNovelty =
+            noveltyConfirmedBpm
+                ?: noveltyCandidateBpm?.takeIf {
+                    nowMs - (noveltyCandidateSinceMs ?: 0L) >= 350L
+                }
+                ?: noveltyEstimate.first
+        var bpm = profile.clamp(displayNovelty)
+        var conf = noveltyEstimate.second.coerceIn(0.0, 1.0)
+        if (!autoNarrowDone && noveltyConfirmedBpm != null && conf > 0.55) {
+            profile = GenreCatalog.autoNarrow(bpm)
+            onsetDetector.updateSensitivity(profile.onsetSensitivity)
+            autoNarrowDone = true
+        }
+        when (state) {
+            MeasureState.Starting, MeasureState.Resyncing -> {
+                val lockConf = if (state == MeasureState.Resyncing) 0.38 else 0.20
+                val canLock = conf >= lockConf && noveltyConfirmedBpm != null
+                if (canLock) {
+                    if (candidateSinceMs == null) candidateSinceMs = nowMs
+                    val activeLockWindow =
+                        if (state == MeasureState.Resyncing) {
+                            profile.lockWindowMs / 2
+                        } else {
+                            800L
+                        }
+                    if (nowMs - (candidateSinceMs ?: nowMs) >= activeLockWindow) {
+                        lockedBpm = bpm
+                        state = MeasureState.Tracking
+                        candidateSinceMs = null
+                        resyncSinceMs = null
+                        beatPulse = true
+                    }
+                } else {
+                    candidateSinceMs = null
+                }
+            }
+            MeasureState.Tracking -> {
+                val locked = lockedBpm!!
+                val probeBpm = bpm
+                val probeConf = conf
+                if (abs(probeBpm - locked) > profile.resyncDeltaBpm && probeConf >= 0.5) {
+                    if (resyncSinceMs == null) resyncSinceMs = nowMs
+                    if (nowMs - (resyncSinceMs ?: nowMs) >= profile.lockWindowMs / 2) {
+                        state = MeasureState.Resyncing
+                        candidateSinceMs = null
+                        onsetTimes.clear()
+                        onsetTimes.addAll(newOnsets)
+                    }
+                } else {
+                    resyncSinceMs = null
+                    if (abs(probeBpm - locked) <= profile.resyncDeltaBpm / 2) {
+                        lockedBpm = locked * 0.85 + probeBpm * 0.15
+                    }
+                    beatPulse = newOnsets.isNotEmpty()
+                }
+            }
+            MeasureState.Idle -> Unit
+        }
+        val displayBpm =
+            when (state) {
+                MeasureState.Starting ->
+                    if (conf >= 0.18) profile.clamp(bpm) else null
+                MeasureState.Tracking -> lockedBpm
+                MeasureState.Resyncing -> lockedBpm
+                MeasureState.Idle -> null
+            }
+        return BpmReading(displayBpm, conf, state, beatPulse, nowMs)
+    }
+
+    private fun pushOnsetFallback(
+        newOnsets: List<Long>,
+        nowMs: Long,
+        beatPulseIn: Boolean,
+    ): BpmReading {
+        var beatPulse = beatPulseIn
         val estimate =
             AutocorrelationTempo.estimateBpm(
                 onsetTimes.toList(),
                 profile.minBpm,
                 profile.maxBpm,
             )
-        var beatPulse = false
-        val gatedNovelty = noveltyEstimate?.first?.let { gateNoveltyBpm(it, nowMs) }
-        if (gatedNovelty == null && estimate == null) {
-            return BpmReading(
-                bpm = if (state == MeasureState.Resyncing) lockedBpm else null,
+            ?: return BpmReading(
+                bpm =
+                    when (state) {
+                        MeasureState.Tracking -> lockedBpm
+                        MeasureState.Resyncing -> lockedBpm
+                        else -> null
+                    },
                 confidence = 0.0,
                 state = state,
-                beatPulse = false,
+                beatPulse = beatPulse,
                 timestampMs = nowMs,
             )
-        }
-        var (bpm, conf) =
-            when {
-                gatedNovelty != null && noveltyEstimate != null -> {
-                    profile.clamp(gatedNovelty) to noveltyEstimate.second.coerceIn(0.0, 1.0)
-                }
-                estimate != null -> estimate
-                else -> noveltyEstimate!! // gated implies non-null novelty
-            }
+        var (bpm, conf) = estimate
         val refined = refineIfFastGrid(onsetTimes.toList(), bpm, conf)
         bpm = profile.clamp(refined.first)
         conf = refined.second
         val recentOnsets = onsetTimes.filter { it >= nowMs - profile.lockWindowMs }
         val recentMinOnsets = if (state == MeasureState.Resyncing) 3 else 4
-        val recentWindow =
-            onsetWindowForEstimate(
-                recentOnsets,
-                minUnaligned = if (state == MeasureState.Resyncing) 3 else 4,
-            )
         val recentTempo =
             AutocorrelationTempo.medianIntervalBpm(recentOnsets, profile.minBpm, profile.maxBpm)
                 ?: AutocorrelationTempo.estimateBpm(
-                    recentWindow,
+                    onsetWindowForEstimate(
+                        recentOnsets,
+                        minUnaligned = if (state == MeasureState.Resyncing) 3 else 4,
+                    ),
                     profile.minBpm,
                     profile.maxBpm,
                     minOnsets = recentMinOnsets,
                 )
         var recentBpm = recentTempo?.first?.let { profile.clamp(it) } ?: bpm
         if (recentTempo != null) {
-            val recentRefined =
-                refineIfFastGrid(recentOnsets, recentBpm, recentTempo.second)
-            recentBpm = profile.clamp(recentRefined.first)
+            recentBpm = profile.clamp(refineIfFastGrid(recentOnsets, recentBpm, recentTempo.second).first)
         }
         if (!autoNarrowDone && conf > 0.55) {
             profile = GenreCatalog.autoNarrow(bpm)
@@ -130,17 +214,10 @@ class BpmEngine(private var profile: GenreProfile) {
         }
         when (state) {
             MeasureState.Starting, MeasureState.Resyncing -> {
-                val lockConf =
-                    if (state == MeasureState.Resyncing) {
-                        0.42
-                    } else if (noveltyConfirmedBpm != null) {
-                        0.22
-                    } else {
-                        0.30
-                    }
+                val lockConf = if (state == MeasureState.Resyncing) 0.42 else 0.30
                 val canLock =
                     if (state == MeasureState.Resyncing) {
-                        recentTempo != null && (recentTempo.second >= lockConf)
+                        recentTempo != null && recentTempo.second >= lockConf
                     } else {
                         conf >= lockConf
                     }
@@ -165,9 +242,7 @@ class BpmEngine(private var profile: GenreProfile) {
             }
             MeasureState.Tracking -> {
                 val locked = lockedBpm!!
-                val probeBpm = recentBpm
-                val probeConf = recentTempo?.second ?: conf
-                if (abs(probeBpm - locked) > profile.resyncDeltaBpm && probeConf >= 0.5) {
+                if (abs(recentBpm - locked) > profile.resyncDeltaBpm && (recentTempo?.second ?: conf) >= 0.5) {
                     if (resyncSinceMs == null) resyncSinceMs = nowMs
                     if (nowMs - (resyncSinceMs ?: nowMs) >= profile.lockWindowMs / 2) {
                         state = MeasureState.Resyncing
@@ -177,7 +252,7 @@ class BpmEngine(private var profile: GenreProfile) {
                     }
                 } else {
                     resyncSinceMs = null
-                    if (abs(probeBpm - locked) <= profile.resyncDeltaBpm / 2) {
+                    if (abs(recentBpm - locked) <= profile.resyncDeltaBpm / 2) {
                         lockedBpm = locked * 0.8 + recentBpm * 0.2
                     }
                     beatPulse = newOnsets.isNotEmpty()
@@ -187,8 +262,7 @@ class BpmEngine(private var profile: GenreProfile) {
         }
         val displayBpm =
             when (state) {
-                MeasureState.Starting ->
-                    if (conf >= 0.18) profile.clamp(bpm) else null
+                MeasureState.Starting -> if (conf >= 0.22) profile.clamp(bpm) else null
                 MeasureState.Tracking -> lockedBpm
                 MeasureState.Resyncing -> lockedBpm
                 MeasureState.Idle -> null

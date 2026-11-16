@@ -29,6 +29,12 @@ class NoveltyBpmEstimator(
         lastPeakScanAnchor = 0L
     }
 
+    fun isWarmingUp(): Boolean {
+        if (history.size < 8) return false
+        val span = history.last().first - history.first().first
+        return span in 1 until 3_200
+    }
+
     fun push(
         timeMs: Long,
         novelty: Double,
@@ -42,9 +48,9 @@ class NoveltyBpmEstimator(
     }
 
     fun estimate(): Pair<Double, Double>? {
-        if (history.size < 50) return null
+        if (history.size < 40) return null
         val span = history.last().first - history.first().first
-        if (span < 4000) return null
+        if (span < 3200) return null
 
         val winMs = min(span, noveltyWinMs)
         val n = (winMs / binMs).toInt()
