@@ -1,6 +1,7 @@
 package com.Mareg74.bpmdetector.domain
 
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 class BpmEngine(private var profile: GenreProfile) {
     private fun onsetWindowForEstimate(onsets: List<Long>, minUnaligned: Int = 4): List<Long> {
@@ -9,6 +10,7 @@ class BpmEngine(private var profile: GenreProfile) {
     }
     private val onsetDetector = OnsetDetector(profile.onsetSensitivity)
     private val onsetTimes = ArrayDeque<Long>()
+    private val rmsEnvelope = ArrayDeque<Pair<Long, Float>>()
     private var state = MeasureState.Starting
     private var lockedBpm: Double? = null
     private var candidateSinceMs: Long? = null
@@ -24,6 +26,7 @@ class BpmEngine(private var profile: GenreProfile) {
     fun reset() {
         onsetDetector.reset()
         onsetTimes.clear()
+        rmsEnvelope.clear()
         state = MeasureState.Starting
         lockedBpm = null
         candidateSinceMs = null
@@ -36,6 +39,7 @@ class BpmEngine(private var profile: GenreProfile) {
         for (o in newOnsets) {
             onsetTimes.addLast(o)
         }
+        appendFrameRmsOnsets(samples, nowMs)
         val windowMs = (profile.lockWindowMs + 1500).coerceAtMost(5000)
         while (onsetTimes.isNotEmpty() && onsetTimes.first() < nowMs - windowMs) {
             onsetTimes.removeFirst()
@@ -83,7 +87,7 @@ class BpmEngine(private var profile: GenreProfile) {
         }
         when (state) {
             MeasureState.Starting, MeasureState.Resyncing -> {
-                val lockConf = if (state == MeasureState.Resyncing) 0.5 else 0.55
+                val lockConf = if (state == MeasureState.Resyncing) 0.45 else 0.35
                 val canLock =
                     if (state == MeasureState.Resyncing) {
                         recentTempo != null && (recentTempo.second >= lockConf)
@@ -96,7 +100,7 @@ class BpmEngine(private var profile: GenreProfile) {
                         if (state == MeasureState.Resyncing) {
                             profile.lockWindowMs / 2
                         } else {
-                            profile.lockWindowMs
+                            (profile.lockWindowMs * 0.55).toLong().coerceAtLeast(1200L)
                         }
                     if (nowMs - (candidateSinceMs ?: nowMs) >= activeLockWindow) {
                         lockedBpm = if (state == MeasureState.Resyncing) recentBpm else bpm
@@ -134,11 +138,37 @@ class BpmEngine(private var profile: GenreProfile) {
         val displayBpm =
             when (state) {
                 MeasureState.Starting ->
-                    if (conf >= 0.4) profile.clamp(bpm) else null
+                    if (conf >= 0.3) profile.clamp(bpm) else null
                 MeasureState.Tracking -> lockedBpm
                 MeasureState.Resyncing -> lockedBpm
                 MeasureState.Idle -> null
             }
         return BpmReading(displayBpm, conf, state, beatPulse, nowMs)
+    }
+
+    private fun appendFrameRmsOnsets(samples: FloatArray, nowMs: Long) {
+        if (samples.isEmpty()) return
+        var sumSq = 0.0
+        for (s in samples) {
+            sumSq += s * s
+        }
+        val rms = sqrt(sumSq / samples.size).toFloat()
+        rmsEnvelope.addLast(nowMs to rms)
+        while (rmsEnvelope.size > 256) {
+            rmsEnvelope.removeFirst()
+        }
+        if (rmsEnvelope.size < 3) return
+        val idx = rmsEnvelope.size - 2
+        val (t, energy) = rmsEnvelope.elementAt(idx)
+        val prev = rmsEnvelope.elementAt(idx - 1).second
+        val next = rmsEnvelope.last().second
+        val sorted = rmsEnvelope.map { it.second }.sorted()
+        val median = sorted[sorted.size / 2]
+        val floor = (median * 1.04f).coerceAtLeast(0.0015f)
+        if (energy < prev || energy <= next || energy < floor) return
+        val lastOnset = onsetTimes.lastOrNull() ?: 0L
+        if (t - lastOnset >= 140L) {
+            onsetTimes.addLast(t)
+        }
     }
 }

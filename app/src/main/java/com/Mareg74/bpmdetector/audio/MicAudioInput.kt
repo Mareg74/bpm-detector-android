@@ -20,6 +20,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 class MicAudioInput(
@@ -129,21 +130,39 @@ class MicAudioInput(
             val read = audioRecord.read(shorts, 0, shorts.size)
             if (read <= 0) continue
             val samples = FloatArray(read)
-            var sumSq = 0.0
             for (i in 0 until read) {
-                val v = shorts[i] / PCM_16_SCALE
-                samples[i] = v
+                samples[i] = shorts[i] / PCM_16_SCALE
+            }
+            val analysis = amplifyQuietMic(samples)
+            var sumSq = 0.0
+            for (v in analysis) {
                 sumSq += v * v
             }
-            val rms = sqrt(sumSq / read).toFloat()
+            val rms = sqrt(sumSq / analysis.size).toFloat()
             _frames.emit(
                 AudioFrame(
-                    samples = samples,
+                    samples = analysis,
                     sampleRate = SAMPLE_RATE_HZ,
                     rms = rms,
                 ),
             )
         }
+    }
+
+    private fun amplifyQuietMic(samples: FloatArray): FloatArray {
+        var peak = 0f
+        for (s in samples) {
+            val a = abs(s)
+            if (a > peak) peak = a
+        }
+        if (peak < 0.08f) {
+            val target = 0.45f
+            val gain = (target / peak.coerceAtLeast(1e-6f)).coerceIn(1f, 96f)
+            return FloatArray(samples.size) { i ->
+                (samples[i] * gain).coerceIn(-1f, 1f)
+            }
+        }
+        return samples
     }
 
     private fun openMicRecord(bufferSize: Int): AudioRecord? {

@@ -53,6 +53,34 @@ class BpmEngineTest {
     }
 
     @Test
+    fun chunked_buffers_lock_like_audio_record() {
+        val engine = BpmEngine(GenreCatalog.byId("auto"))
+        val sr = 44100
+        val bpm = 120.0
+        val period = (60.0 / bpm * sr).toInt()
+        val total = sr * 25
+        val all = FloatArray(total)
+        for (i in all.indices step period) {
+            for (j in 0 until 32) {
+                if (i + j < total) all[i + j] = 0.9f
+            }
+        }
+        val readSize = 7168
+        var offset = 0
+        var t = 0L
+        var reading = BpmReading(null, 0.0, MeasureState.Starting, false, 0)
+        while (offset < all.size) {
+            val end = minOf(offset + readSize, all.size)
+            val slice = all.copyOfRange(offset, end)
+            reading = engine.push(slice, sr, t)
+            t += slice.size * 1000L / sr
+            offset = end
+        }
+        assertThat(reading.state).isEqualTo(MeasureState.Tracking)
+        assertThat(reading.bpm!!).isWithin(6.0).of(120.0)
+    }
+
+    @Test
     fun weak_signal_stays_starting_without_bpm() {
         val engine = BpmEngine(GenreCatalog.byId("wide"))
         val quiet = FloatArray(44100) { 0.0001f }

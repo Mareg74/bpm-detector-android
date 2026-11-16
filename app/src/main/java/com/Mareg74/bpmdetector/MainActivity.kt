@@ -45,10 +45,18 @@ class MainActivity : ComponentActivity() {
     private val mediaProjectionLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
-                val manager = getSystemService(MediaProjectionManager::class.java)
-                val projection = manager.getMediaProjection(result.resultCode, result.data!!)
-                viewModel.attachMediaProjection(projection)
-                viewModel.startMeasurement()
+                try {
+                    val manager = getSystemService(MediaProjectionManager::class.java)
+                    val projection = manager.getMediaProjection(result.resultCode, result.data!!)
+                    viewModel.attachMediaProjection(projection)
+                    viewModel.startMeasurement()
+                } catch (_: SecurityException) {
+                    viewModel.reportStartBlocked(MeasureViewModel.MEDIA_PROJECTION_DENIED_BANNER)
+                } catch (_: RuntimeException) {
+                    viewModel.reportStartBlocked(
+                        "Internal playback capture failed on this device. Use Microphone source.",
+                    )
+                }
             } else {
                 viewModel.reportStartBlocked(MeasureViewModel.MEDIA_PROJECTION_DENIED_BANNER)
             }

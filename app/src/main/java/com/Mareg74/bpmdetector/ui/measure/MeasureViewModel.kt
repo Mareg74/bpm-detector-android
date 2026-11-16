@@ -207,7 +207,7 @@ class MeasureViewModel(
                 input.frames.collect { frame ->
                     val nowMs = SystemClock.elapsedRealtime()
                     val reading = engine.push(frame.samples, frame.sampleRate, nowMs)
-                    session.append(reading)
+session.append(reading)
                     _uiState.update { current ->
                         current.copy(
                             state = reading.state,
