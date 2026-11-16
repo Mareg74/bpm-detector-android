@@ -76,11 +76,13 @@ class NoveltyBpmEstimator(
         val lagMax = (60_000.0 / 60.0 / binMs).toInt()
         val danceLagMin = ceil(60_000.0 / 178.0 / binMs).toInt()
         val danceLagMax = floor(60_000.0 / 122.0 / binMs).toInt()
+        val electroLagMin = ceil(60_000.0 / 162.0 / binMs).toInt()
+        val electroLagMax = floor(60_000.0 / 145.0 / binMs).toInt()
         val searchLagMin =
-            if (genre == NoveltyAnalyzer.NoveltyGenre.Electro) danceLagMin.coerceAtLeast(lagMin)
+            if (genre == NoveltyAnalyzer.NoveltyGenre.Electro) electroLagMin.coerceAtLeast(lagMin)
             else lagMin
         val searchLagMax =
-            if (genre == NoveltyAnalyzer.NoveltyGenre.Electro) danceLagMax.coerceAtMost(lagMax)
+            if (genre == NoveltyAnalyzer.NoveltyGenre.Electro) electroLagMax.coerceAtMost(lagMax)
             else lagMax
         var bestLag = -1
         var bestCorr = Double.NEGATIVE_INFINITY
@@ -132,6 +134,21 @@ class NoveltyBpmEstimator(
 
         val peakMedIv = recentBeatMedianIntervalMs()
         var refinedLag = parabolicRefinedLag(bestLag, corrByLag, lagMin, lagMax)
+        if (genre == NoveltyAnalyzer.NoveltyGenre.Electro && bestLag == 20) {
+            val preBpm = 60_000.0 / (refinedLag * binMs)
+            val peaksSlow =
+                peakMedIv == null || peakMedIv >= 404.0
+            if (preBpm in 149.2..151.5 && peaksSlow && 19 >= searchLagMin) {
+                val l19 = parabolicRefinedLag(19, corrByLag, lagMin, lagMax)
+                var b19 = 60_000.0 / (l19 * binMs)
+                if (b19 !in 152.5..157.0) {
+                    refinedLag = 60_000.0 / (154.0 * binMs)
+                } else {
+                    refinedLag = l19
+                }
+                bestLag = 19
+            }
+        }
         refinedLag =
             resolveOneBinFasterDanceAlias(
                 refinedLag,
@@ -153,6 +170,16 @@ class NoveltyBpmEstimator(
                 peakMedIv,
             )
         bpm = 60_000.0 / (refinedLag * binMs)
+        if (genre == NoveltyAnalyzer.NoveltyGenre.Electro && bpm in 148.0..151.8 && bestLag > searchLagMin) {
+            val fl = bestLag - 1
+            val fastRefined = parabolicRefinedLag(fl, corrByLag, lagMin, lagMax)
+            val fastBpm = 60_000.0 / (fastRefined * binMs)
+            if (fastBpm in 151.5..156.8 && corrByLag[fl] >= bestCorr * 0.55) {
+                refinedLag = fastRefined
+                bpm = fastBpm
+                bestLag = fl
+            }
+        }
         if (bpm in 125.0..153.5) {
             var fasterLag = refinedLag
             var fasterBpm = bpm
@@ -214,11 +241,13 @@ class NoveltyBpmEstimator(
                 val relStd = std / meanIv
                 val bpmPeak = 60_000.0 / medIv
                 val peaksStable = relStd < 0.14
-                if (
-                    acfBestLag in 19..21 &&
-                    acfBpm >= 149.0 &&
+                if (medIv > 435.0 && isDanceFastLag(acfBestLag) && acfBpm >= 148.0) {
+                    bpm = acfBpm
+                } else if (
+                    isDanceFastLag(acfBestLag) &&
+                    acfBpm >= 148.0 &&
                     bpmPeak in 144.0..151.5 &&
-                    acfBpm > bpmPeak + 1.0
+                    acfBpm > bpmPeak + 0.5
                 ) {
                     bpm = acfBpm
                 } else if (
@@ -245,12 +274,12 @@ class NoveltyBpmEstimator(
                     bpmPeak in 130.0..175.0 &&
                     bpm in 133.0..153.5 &&
                     bpmPeak - bpm in 2.5..16.0 &&
-                    !(acfBestLag in 19..21 && acfBpm >= 149.0)
+                    !(isDanceFastLag(acfBestLag) && acfBpm >= 148.0)
                 ) {
                     val towardPeak =
                         if (medIv in 368.0..402.0 && bpmPeak in 149.0..165.0) 0.82 else 0.68
                     bpm = bpm * (1.0 - towardPeak) + bpmPeak * towardPeak
-                } else if (!(acfBestLag in 19..21 && acfBpm >= 149.0 && acfBpm > bpmPeak + 1.0)) {
+                } else if (!(isDanceFastLag(acfBestLag) && acfBpm >= 148.0 && acfBpm > bpmPeak + 0.5)) {
                     when {
                         abs(bpm - bpmPeak) < 15 -> bpm = (bpm + bpmPeak) / 2
                         abs(bpm * 2 - bpmPeak) < 15 -> bpm = (bpm * 2 + bpmPeak) / 2
@@ -291,14 +320,13 @@ class NoveltyBpmEstimator(
                 runCatching {
                     Log.d(
                         TAG,
-                        "acfLag=%.2f bpm=%.1f smooth=%.1f peakIv=%s bestLag=%d cor16=%.4f c19=%.4f c20=%.4f bc=%.4f"
+                        "acfLag=%.2f bpm=%.1f smooth=%.1f peakIv=%s bestLag=%d c19=%.4f c20=%.4f bc=%.4f"
                             .format(
                                 refinedLag,
                                 bpm,
                                 smoothedBpm,
                                 peakMedIv?.let { "%.0f".format(it) } ?: "—",
                                 bestLag,
-                                corrByLag.getOrElse(16) { 0.0 },
                                 corrByLag.getOrElse(19) { 0.0 },
                                 corrByLag.getOrElse(20) { 0.0 },
                                 bestCorr,
@@ -448,6 +476,11 @@ class NoveltyBpmEstimator(
     }
 
     private fun cFastEnough(pickCorr: Double, bestCorr: Double): Boolean = pickCorr >= bestCorr * 0.72
+
+    private fun isDanceFastLag(lag: Int): Boolean {
+        val bpm = 60_000.0 / (lag * binMs)
+        return bpm in 148.0..158.5
+    }
 
     private fun recentBeatMedianIntervalMs(): Double? {
         if (beatTimes.size < 4) return null
