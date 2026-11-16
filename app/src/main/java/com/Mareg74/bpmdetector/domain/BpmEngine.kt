@@ -164,17 +164,10 @@ class BpmEngine(private var profile: GenreProfile) {
                 profile.minBpm,
                 profile.maxBpm,
             )
-        if (median != null && median.second >= 0.32) {
-            val gap = abs(bpm - median.first)
+        if (median != null && median.second >= 0.32 && bpm >= 168.0) {
             val merged = (conf * 0.4 + median.second * 0.6).coerceIn(0.0, 1.0)
-            when {
-                bpm >= 168 && median.first < bpm * 0.88 ->
-                    return median.first to merged
-                gap > 22.0 &&
-                    median.second >= conf * 0.72 &&
-                    median.first < bpm * 0.92 &&
-                    median.first >= bpm * 0.72 ->
-                    return profile.clamp(median.first) to merged
+            if (median.first < bpm * 0.88) {
+                return profile.clamp(median.first) to merged
             }
         }
         if (bpm < 168.0) return bpm to conf
