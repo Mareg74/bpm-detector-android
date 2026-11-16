@@ -14,4 +14,29 @@ val Typography = Typography(
         lineHeight = 24.sp,
         letterSpacing = 0.5.sp,
     ),
+    titleMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 18.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.15.sp,
+    ),
 )
+
+val BpmIntegerStyle =
+    TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 96.sp,
+        lineHeight = 104.sp,
+        letterSpacing = (-1.5).sp,
+    )
+
+val BpmDecimalStyle =
+    TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 48.sp,
+        lineHeight = 56.sp,
+        letterSpacing = 0.sp,
+    )
