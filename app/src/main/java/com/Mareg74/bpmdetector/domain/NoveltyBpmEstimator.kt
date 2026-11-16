@@ -119,6 +119,34 @@ class NoveltyBpmEstimator(
         }
 
         var bpm = 60_000.0 / (refinedLag * binMs)
+        if (bpm in 128.0..152.0) {
+            var fasterLag = refinedLag
+            var fasterBpm = bpm
+            for (lag in lagMin..lagMax) {
+                val c = corrByLag.getOrElse(lag) { 0.0 }
+                if (c < bestCorr * 0.86) continue
+                val candidate = 60_000.0 / (lag * binMs)
+                if (candidate in 148.0..166.0 && candidate > fasterBpm && lag < fasterLag) {
+                    fasterLag = lag.toDouble()
+                    fasterBpm = candidate
+                }
+            }
+            if (fasterBpm > bpm + 3.0) {
+                refinedLag = fasterLag
+                if (fasterLag.toInt() - 1 >= lagMin && fasterLag.toInt() + 1 <= lagMax) {
+                    val li = fasterLag.toInt()
+                    val cL = corrByLag[li - 1]
+                    val cC = corrByLag[li]
+                    val cR = corrByLag[li + 1]
+                    val denom = cL - 2 * cC + cR
+                    if (abs(denom) > 1e-9) {
+                        val delta = 0.5 * (cL - cR) / denom
+                        refinedLag = li + max(-1.0, min(1.0, delta))
+                    }
+                }
+                bpm = 60_000.0 / (refinedLag * binMs)
+            }
+        }
         if (bpm < 105.0) {
             val halfLag = (refinedLag / 2.0).toInt()
             if (halfLag >= lagMin && halfLag <= lagMax) {
@@ -144,8 +172,9 @@ class NoveltyBpmEstimator(
         if (bpm < 60 || bpm > 180) return null
 
         fundamentalBpmFromPeakIntervals()?.let { fund ->
-            if (bpm < 112.0 && fund in 128.0..175.0) {
-                bpm = fund
+            when {
+                bpm < 112.0 && fund in 128.0..175.0 -> bpm = fund
+                fund > bpm + 4.0 && fund in 148.0..165.0 && bpm in 140.0..153.0 -> bpm = fund
             }
         }
 

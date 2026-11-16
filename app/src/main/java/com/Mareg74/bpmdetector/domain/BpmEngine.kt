@@ -351,6 +351,14 @@ class BpmEngine(private var profile: GenreProfile) {
         ) {
             noveltyConfirmedBpm = noveltyCandidateBpm
         }
+        if (
+            noveltyConfirmedBpm != null &&
+            noveltyCandidateBpm != null &&
+            noveltyCandidateBpm!! > noveltyConfirmedBpm!! + 5.0 &&
+            candidateAge >= 500L
+        ) {
+            noveltyConfirmedBpm = noveltyCandidateBpm
+        }
         noveltyConfirmedBpm?.let { return it }
         if (noveltyCandidateBpm != null && candidateAge >= 250) {
             return noveltyCandidateBpm
