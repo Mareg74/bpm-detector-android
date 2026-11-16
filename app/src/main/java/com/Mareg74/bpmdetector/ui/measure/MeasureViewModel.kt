@@ -144,6 +144,12 @@ class MeasureViewModel(
         _uiState.update { it.copy(errorBanner = null) }
     }
 
+    fun updateSettings(transform: (UserSettings) -> UserSettings) {
+        viewModelScope.launch {
+            settingsStore.update(transform)
+        }
+    }
+
     fun startMeasurement() {
         if (measureJob?.isActive == true) return
         val settings = _uiState.value.settings

@@ -15,10 +15,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.Mareg74.bpmdetector.ui.settings.SettingsSheet
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -27,18 +35,45 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.Mareg74.bpmdetector.domain.MeasureState
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MeasureScreen(
     viewModel: MeasureViewModel,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var settingsOpen by remember { mutableStateOf(false) }
     MeasureScreenContent(
         uiState = uiState,
         onStart = viewModel::startMeasurement,
         onStop = viewModel::stopMeasurement,
+        onOpenSettings = { settingsOpen = true },
         modifier = modifier,
     )
+    if (settingsOpen) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { settingsOpen = false },
+            sheetState = sheetState,
+        ) {
+            SettingsSheet(
+                settings = uiState.settings,
+                sourceAvailability = uiState.sourceAvailability,
+                onSourceChange = { kind ->
+                    viewModel.updateSettings { it.copy(source = kind) }
+                },
+                onGenreChange = { id ->
+                    viewModel.updateSettings { it.copy(genreId = id) }
+                },
+                onShowDecimalChange = { show ->
+                    viewModel.updateSettings { it.copy(showDecimal = show) }
+                },
+                onThemeChange = { theme ->
+                    viewModel.updateSettings { it.copy(theme = theme) }
+                },
+            )
+        }
+    }
 }
 
 @Composable
@@ -46,6 +81,7 @@ fun MeasureScreenContent(
     uiState: MeasureUiState,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val measuring = uiState.state != MeasureState.Idle
@@ -94,13 +130,19 @@ fun MeasureScreenContent(
         }
         Column(
             horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         ) {
             Button(
                 onClick = if (measuring) onStop else onStart,
                 modifier = Modifier.testTag("start_stop"),
             ) {
                 Text(if (measuring) "STOP" else "START")
+            }
+            TextButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.testTag("settings"),
+            ) {
+                Text("Settings")
             }
         }
     }
