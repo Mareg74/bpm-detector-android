@@ -133,7 +133,8 @@ class BpmEngine(private var profile: GenreProfile) {
         }
         val displayBpm =
             when (state) {
-                MeasureState.Starting -> null
+                MeasureState.Starting ->
+                    if (conf >= 0.4) profile.clamp(bpm) else null
                 MeasureState.Tracking -> lockedBpm
                 MeasureState.Resyncing -> lockedBpm
                 MeasureState.Idle -> null

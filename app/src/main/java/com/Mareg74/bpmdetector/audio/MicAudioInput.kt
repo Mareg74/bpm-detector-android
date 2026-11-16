@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,17 +58,20 @@ class MicAudioInput(
             }
             val audioRecord =
                 try {
-                    AudioRecord(
-                        MediaRecorder.AudioSource.MIC,
-                        SAMPLE_RATE_HZ,
-                        AudioFormat.CHANNEL_IN_MONO,
-                        AudioFormat.ENCODING_PCM_16BIT,
-                        bufferSize,
-                    )
+                    openMicRecord(bufferSize)
                 } catch (e: SecurityException) {
                     _errors.emit(AudioError.PermissionDenied)
                     return
                 }
+            if (audioRecord == null) {
+                _errors.emit(
+                    AudioError.SourceUnavailable(
+                        AudioSourceKind.Mic,
+                        "Failed to open microphone",
+                    ),
+                )
+                return
+            }
             if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
                 audioRecord.release()
                 _errors.emit(
@@ -140,6 +144,34 @@ class MicAudioInput(
                 ),
             )
         }
+    }
+
+    private fun openMicRecord(bufferSize: Int): AudioRecord? {
+        val sources =
+            buildList {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    add(MediaRecorder.AudioSource.UNPROCESSED)
+                }
+                add(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                add(MediaRecorder.AudioSource.MIC)
+            }
+        for (source in sources) {
+            val record =
+                try {
+                    AudioRecord(
+                        source,
+                        SAMPLE_RATE_HZ,
+                        AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        bufferSize,
+                    )
+                } catch (_: IllegalArgumentException) {
+                    null
+                } ?: continue
+            if (record.state == AudioRecord.STATE_INITIALIZED) return record
+            record.release()
+        }
+        return null
     }
 
     companion object {
