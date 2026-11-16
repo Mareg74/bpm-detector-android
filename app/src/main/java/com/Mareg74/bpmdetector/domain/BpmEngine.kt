@@ -135,7 +135,7 @@ class BpmEngine(private var profile: GenreProfile) {
                 val probeConf = conf
                 if (abs(probeBpm - locked) > profile.resyncDeltaBpm && probeConf >= 0.5) {
                     if (resyncSinceMs == null) resyncSinceMs = nowMs
-                    if (nowMs - (resyncSinceMs ?: nowMs) >= profile.lockWindowMs / 2) {
+                    if (nowMs - (resyncSinceMs ?: nowMs) >= profile.lockWindowMs * 2 / 5) {
                         state = MeasureState.Resyncing
                         candidateSinceMs = null
                         onsetTimes.clear()
