@@ -4,6 +4,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
+# shellcheck source=ensure-java.sh
+source "$repo_root/scripts/ensure-java.sh"
+ensure_java_home
+echo "JAVA_HOME=$JAVA_HOME"
 
 pick_adb() {
   local sdk_adb="$HOME/Library/Android/sdk/platform-tools/adb"

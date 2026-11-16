@@ -28,6 +28,7 @@ Sans worker Mac, l’agent Cloud **ne voit pas** l’USB.
 ## Scripts (sur le Mac)
 
 ```bash
+export JAVA_HOME="$(/usr/libexec/java_home -v 17)"   # ou JDK Android Studio / brew openjdk@17
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 export PATH="$ANDROID_HOME/platform-tools:$PATH"
 
@@ -53,7 +54,20 @@ Copier depuis `local.properties.example` si besoin.
 | Modèle | AYN_Thor (`product:kalama`) |
 | Exemple serial | `e653283c` |
 
-## Dépannage ADB (macOS)
+## Dépannage
+
+### Java / Gradle
+
+Erreur *Unable to locate a Java Runtime* : installer JDK 17+ puis :
+
+```bash
+brew install openjdk@17
+export JAVA_HOME="$(/usr/libexec/java_home -v 17)"
+```
+
+Les scripts `install-debug-device.sh` / `thor-pilot.sh` tentent `java_home`, le JBR d’Android Studio et Homebrew `openjdk@17`.
+
+### ADB (macOS)
 
 Utiliser **uniquement** `$ANDROID_HOME/platform-tools/adb` — pas de mélange Homebrew / Studio (`protocol fault`).
 Voir `scripts/install-debug-device.sh` pour le détail.
