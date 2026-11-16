@@ -170,7 +170,25 @@ class BpmEngine(private var profile: GenreProfile) {
                 return profile.clamp(median.first) to merged
             }
         }
-        if (bpm < 168.0) return bpm to conf
+        if (bpm < 168.0) {
+            if (bpm in 76.0..88.0) {
+                val doubled = bpm * 2.0
+                if (doubled in 130.0..175.0 && conf < 0.62) {
+                    val harmonic =
+                        FundamentalTempo.refine(
+                            onsets,
+                            doubled,
+                            conf,
+                            profile.minBpm,
+                            profile.maxBpm,
+                        )
+                    if (harmonic.first >= doubled * 0.88 && harmonic.second >= conf * 0.45) {
+                        return profile.clamp(harmonic.first) to harmonic.second
+                    }
+                }
+            }
+            return bpm to conf
+        }
         val refined =
             FundamentalTempo.refine(
                 onsets,
@@ -204,7 +222,7 @@ class BpmEngine(private var profile: GenreProfile) {
         val floor = (median * 1.04f).coerceAtLeast(0.0015f)
         if (energy < prev || energy <= next || energy < floor) return
         val lastOnset = onsetTimes.lastOrNull() ?: 0L
-        if (t - lastOnset >= 380L) {
+        if (t - lastOnset >= 280L) {
             onsetTimes.addLast(t)
         }
     }

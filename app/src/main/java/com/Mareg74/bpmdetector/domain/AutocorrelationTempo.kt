@@ -65,9 +65,7 @@ object AutocorrelationTempo {
         bestLag = chosen
         var half = bestLag / 2
         while (half >= minLag) {
-            val s = scores[half] +
-                scores.getOrElse(half - 1) { 0 } +
-                scores.getOrElse(half + 1) { 0 }
+            val s = lagScore(scores, half)
             if (s >= floor) {
                 bestLag = half
                 half /= 2
@@ -75,8 +73,31 @@ object AutocorrelationTempo {
                 break
             }
         }
+        bestLag = promoteHalfTimeLag(scores, bestLag, minLag, floor)
         val bpm = 60_000.0 / bestLag
         val conf = (best.toDouble() / onsetTimesMs.size).coerceIn(0.0, 1.0)
         return bpm to conf
+    }
+
+    private fun lagScore(scores: IntArray, lag: Int): Int =
+        scores[lag] +
+            scores.getOrElse(lag - 1) { 0 } +
+            scores.getOrElse(lag + 1) { 0 }
+
+    /** When lag implies < 92 BPM, prefer lag/2 if onsets also support the faster pulse (missed beats). */
+    private fun promoteHalfTimeLag(
+        scores: IntArray,
+        bestLag: Int,
+        minLag: Int,
+        floor: Int,
+    ): Int {
+        val bpm = 60_000.0 / bestLag
+        if (bpm >= 92.0) return bestLag
+        val halfLag = bestLag / 2
+        if (halfLag < minLag) return bestLag
+        val sFull = lagScore(scores, bestLag)
+        val sHalf = lagScore(scores, halfLag)
+        if (sHalf >= floor && sHalf >= sFull * 0.72) return halfLag
+        return bestLag
     }
 }
