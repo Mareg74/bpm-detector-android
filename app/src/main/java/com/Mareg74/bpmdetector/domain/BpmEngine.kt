@@ -108,20 +108,20 @@ class BpmEngine(private var profile: GenreProfile) {
         }
         when (state) {
             MeasureState.Starting, MeasureState.Resyncing -> {
-                val lockConf = if (state == MeasureState.Resyncing) 0.38 else 0.20
-                val gatedReady = noveltyConfirmedBpm != null ||
-                    (
-                        gatedNovelty != null &&
-                            nowMs - (noveltyCandidateSinceMs ?: 0L) >= 400L
-                    )
+                val lockConf = if (state == MeasureState.Resyncing) 0.35 else 0.14
+                val candAge = nowMs - (noveltyCandidateSinceMs ?: 0L)
+                val gatedReady =
+                    noveltyConfirmedBpm != null ||
+                        gatedNovelty != null && candAge >= 120L ||
+                        candAge >= 180L && conf >= 0.22
                 val canLock = conf >= lockConf && gatedReady
                 if (canLock) {
                     if (candidateSinceMs == null) candidateSinceMs = nowMs
                     val activeLockWindow =
                         if (state == MeasureState.Resyncing) {
-                            profile.lockWindowMs / 2
+                            380L
                         } else {
-                            650L
+                            260L
                         }
                     if (nowMs - (candidateSinceMs ?: nowMs) >= activeLockWindow) {
                         lockedBpm = gatedNovelty?.let { profile.clamp(it) } ?: bpm
@@ -170,7 +170,7 @@ class BpmEngine(private var profile: GenreProfile) {
         val displayBpm =
             when (state) {
                 MeasureState.Starting ->
-                    if (conf >= 0.18) profile.clamp(bpm) else null
+                    if (conf >= 0.1) profile.clamp(bpm) else null
                 MeasureState.Tracking -> profile.clamp(bpm)
                 MeasureState.Resyncing -> profile.clamp(bpm)
                 MeasureState.Idle -> null
@@ -350,7 +350,7 @@ class BpmEngine(private var profile: GenreProfile) {
             }
         }
         val candidateAge = nowMs - (noveltyCandidateSinceMs ?: nowMs)
-        val requiredMs = if (noveltyConfirmedBpm == null) 700L else 1_000L
+        val requiredMs = if (noveltyConfirmedBpm == null) 220L else 550L
         if (noveltyCandidateBpm != null && abs(raw - noveltyCandidateBpm!!) <= tol &&
             candidateAge >= requiredMs
         ) {
@@ -366,7 +366,7 @@ class BpmEngine(private var profile: GenreProfile) {
             noveltyConfirmedBpm = noveltyCandidateBpm
         }
         noveltyConfirmedBpm?.let { return it }
-        if (noveltyCandidateBpm != null && candidateAge >= 250) {
+        if (noveltyCandidateBpm != null && candidateAge >= 90) {
             return noveltyCandidateBpm
         }
         return null

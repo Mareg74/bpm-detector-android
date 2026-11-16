@@ -48,7 +48,7 @@ class NoveltyAnalyzer(
             ring[ringFill] = s
             ringFill = (ringFill + 1) % fftSize
         }
-        if (timeMs - lastSampleMs < 20) return null
+        if (timeMs - lastSampleMs < 12) return null
         lastSampleMs = timeMs
         val ordered = FloatArray(fftSize)
         var j = ringFill

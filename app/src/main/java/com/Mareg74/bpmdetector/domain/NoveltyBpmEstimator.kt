@@ -38,7 +38,7 @@ class NoveltyBpmEstimator(
     fun isWarmingUp(): Boolean {
         if (history.size < 8) return false
         val span = history.last().first - history.first().first
-        return span in 1 until 3_200
+        return span in 1 until 2_050
     }
 
     fun push(
@@ -54,9 +54,9 @@ class NoveltyBpmEstimator(
     }
 
     fun estimate(): Pair<Double, Double>? {
-        if (history.size < 40) return null
+        if (history.size < 24) return null
         val span = history.last().first - history.first().first
-        if (span < 3200) return null
+        if (span < 2_050) return null
 
         val winMs = min(span, noveltyWinMs)
         val n = (winMs / binMs).toInt()
@@ -66,7 +66,7 @@ class NoveltyBpmEstimator(
             val age = now - t
             if (age > winMs) continue
             val idx = n - 1 - (age / binMs).toInt()
-            val weight = exp(-age / 3200.0)
+            val weight = exp(-age / 2_800.0)
             if (idx in 0 until n) {
                 bins[idx] = max(bins[idx], (v * weight).toFloat())
             }
@@ -207,11 +207,11 @@ class NoveltyBpmEstimator(
                 val peaksStable = relStd < 0.14
                 if (
                     acfBestLag in 19..21 &&
-                    acfBpm >= 151.0 &&
-                    bpmPeak in 145.0..151.0 &&
-                    acfBpm > bpmPeak + 2.0
+                    acfBpm >= 149.0 &&
+                    bpmPeak in 144.0..151.5 &&
+                    acfBpm > bpmPeak + 1.0
                 ) {
-                    bpm = acfBpm * 0.76 + bpmPeak * 0.24
+                    bpm = acfBpm
                 } else if (
                     fastIv.size >= 2 &&
                     medIv in 403.0..418.0 &&
@@ -235,12 +235,13 @@ class NoveltyBpmEstimator(
                     peaksStable &&
                     bpmPeak in 130.0..175.0 &&
                     bpm in 133.0..153.5 &&
-                    bpmPeak - bpm in 2.5..16.0
+                    bpmPeak - bpm in 2.5..16.0 &&
+                    !(acfBestLag in 19..21 && acfBpm >= 149.0)
                 ) {
                     val towardPeak =
                         if (medIv in 368.0..402.0 && bpmPeak in 149.0..165.0) 0.82 else 0.68
                     bpm = bpm * (1.0 - towardPeak) + bpmPeak * towardPeak
-                } else {
+                } else if (!(acfBestLag in 19..21 && acfBpm >= 149.0 && acfBpm > bpmPeak + 1.0)) {
                     when {
                         abs(bpm - bpmPeak) < 15 -> bpm = (bpm + bpmPeak) / 2
                         abs(bpm * 2 - bpmPeak) < 15 -> bpm = (bpm * 2 + bpmPeak) / 2
@@ -254,7 +255,7 @@ class NoveltyBpmEstimator(
             }
         }
 
-        var alpha = if (genre == NoveltyAnalyzer.NoveltyGenre.Acoustic) 0.35 else 0.28
+        var alpha = if (genre == NoveltyAnalyzer.NoveltyGenre.Acoustic) 0.4 else 0.46
         smoothedBpm =
             smoothedBpm?.let { prev ->
                 when {
