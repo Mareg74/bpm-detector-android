@@ -63,7 +63,9 @@ class BpmEngine(private var profile: GenreProfile) {
             )
         }
         var (bpm, conf) = estimate
-        bpm = profile.clamp(bpm)
+        val refined = refineIfFastGrid(onsetTimes.toList(), bpm, conf)
+        bpm = profile.clamp(refined.first)
+        conf = refined.second
         val recentOnsets = onsetTimes.filter { it >= nowMs - profile.lockWindowMs }
         val recentMinOnsets = if (state == MeasureState.Resyncing) 3 else 4
         val recentWindow =
@@ -79,7 +81,12 @@ class BpmEngine(private var profile: GenreProfile) {
                     profile.maxBpm,
                     minOnsets = recentMinOnsets,
                 )
-        val recentBpm = recentTempo?.first?.let { profile.clamp(it) } ?: bpm
+        var recentBpm = recentTempo?.first?.let { profile.clamp(it) } ?: bpm
+        if (recentTempo != null) {
+            val recentRefined =
+                refineIfFastGrid(recentOnsets, recentBpm, recentTempo.second)
+            recentBpm = profile.clamp(recentRefined.first)
+        }
         if (!autoNarrowDone && conf > 0.55) {
             profile = GenreCatalog.autoNarrow(bpm)
             onsetDetector.updateSensitivity(profile.onsetSensitivity)
@@ -146,6 +153,34 @@ class BpmEngine(private var profile: GenreProfile) {
         return BpmReading(displayBpm, conf, state, beatPulse, nowMs)
     }
 
+    private fun refineIfFastGrid(
+        onsets: List<Long>,
+        bpm: Double,
+        conf: Double,
+    ): Pair<Double, Double> {
+        if (bpm < 148.0) return bpm to conf
+        val median =
+            AutocorrelationTempo.medianIntervalBpm(
+                onsets,
+                profile.minBpm,
+                profile.maxBpm,
+            )
+        if (median != null && median.first < bpm * 0.88 && median.second >= 0.32) {
+            val merged = (conf * 0.4 + median.second * 0.6).coerceIn(0.0, 1.0)
+            return median.first to merged
+        }
+        val refined =
+            FundamentalTempo.refine(
+                onsets,
+                bpm,
+                conf,
+                profile.minBpm,
+                profile.maxBpm,
+            )
+        if (refined.first > bpm * 0.9) return bpm to conf
+        return refined
+    }
+
     private fun appendFrameRmsOnsets(samples: FloatArray, nowMs: Long) {
         if (samples.isEmpty()) return
         var sumSq = 0.0
@@ -167,7 +202,7 @@ class BpmEngine(private var profile: GenreProfile) {
         val floor = (median * 1.04f).coerceAtLeast(0.0015f)
         if (energy < prev || energy <= next || energy < floor) return
         val lastOnset = onsetTimes.lastOrNull() ?: 0L
-        if (t - lastOnset >= 140L) {
+        if (t - lastOnset >= 380L) {
             onsetTimes.addLast(t)
         }
     }

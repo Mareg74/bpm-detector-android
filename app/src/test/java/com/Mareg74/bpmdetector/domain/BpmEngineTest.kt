@@ -81,6 +81,38 @@ class BpmEngineTest {
     }
 
     @Test
+    fun mixed_hihat_grid_locks_near_kick_fundamental() {
+        val engine = BpmEngine(GenreCatalog.byId("auto"))
+        val sr = 44100
+        val kickBpm = 140.0
+        val kickPeriod = (60.0 / kickBpm * sr).toInt()
+        val total = sr * 30
+        val all = FloatArray(total)
+        var i = 0
+        while (i < total) {
+            for (j in 0 until 48) if (i + j < total) all[i + j] = 1f
+            i += kickPeriod
+            if (i + kickPeriod / 2 < total) {
+                val h = i
+                for (j in 0 until 20) if (h + j < total) all[h + j] = 0.7f
+                i += kickPeriod / 2
+            }
+        }
+        val readSize = 7168
+        var offset = 0
+        var t = 0L
+        var reading = BpmReading(null, 0.0, MeasureState.Starting, false, 0)
+        while (offset < all.size) {
+            val end = minOf(offset + readSize, all.size)
+            reading = engine.push(all.copyOfRange(offset, end), sr, t)
+            t += (end - offset) * 1000L / sr
+            offset = end
+        }
+        assertThat(reading.state).isAnyOf(MeasureState.Tracking, MeasureState.Starting)
+        assertThat(reading.bpm!!).isWithin(18.0).of(140.0)
+    }
+
+    @Test
     fun weak_signal_stays_starting_without_bpm() {
         val engine = BpmEngine(GenreCatalog.byId("wide"))
         val quiet = FloatArray(44100) { 0.0001f }
