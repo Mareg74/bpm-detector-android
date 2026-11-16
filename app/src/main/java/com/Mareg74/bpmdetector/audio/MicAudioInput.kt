@@ -156,8 +156,8 @@ class MicAudioInput(
             if (a > peak) peak = a
         }
         if (peak < 0.08f) {
-            val target = 0.45f
-            val gain = (target / peak.coerceAtLeast(1e-6f)).coerceIn(1f, 96f)
+            val target = 0.28f
+            val gain = (target / peak.coerceAtLeast(1e-6f)).coerceIn(1f, 40f)
             return FloatArray(samples.size) { i ->
                 (samples[i] * gain).coerceIn(-1f, 1f)
             }

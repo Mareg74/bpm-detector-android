@@ -2,6 +2,7 @@ package com.Mareg74.bpmdetector.domain
 
 import com.Mareg74.bpmdetector.domain.audio.RealFft
 import kotlin.math.PI
+import kotlin.math.log10
 import kotlin.math.max
 
 /**
@@ -70,7 +71,9 @@ class NoveltyAnalyzer(
             for (i in mags.indices) {
                 val hz = i * binHz
                 if (hz < band.lowHz || hz > band.highHz) continue
-                val mag = max(0f, mags[i] / fftSize)
+                val linear = (mags[i] / fftSize).coerceAtLeast(1e-9f)
+                val db = 20f * log10(linear)
+                val mag = max(0f, (db + 100f) / 100f)
                 val prev = prevBandMags!![b][i]
                 val d = mag - prev
                 prevBandMags!![b][i] = mag

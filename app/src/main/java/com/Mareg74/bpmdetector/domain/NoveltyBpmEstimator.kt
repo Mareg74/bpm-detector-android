@@ -95,12 +95,12 @@ class NoveltyBpmEstimator(
             var danceCorr = bestCorr
             for (lag in danceLagMin..danceLagMax) {
                 val c = corrByLag.getOrElse(lag) { 0.0 }
-                if (c >= bestCorr * 0.78 && c >= danceCorr) {
+                if (c >= bestCorr * 0.58 && c >= danceCorr) {
                     danceCorr = c
                     danceLag = lag
                 }
             }
-            if (danceLag != bestLag && danceCorr >= bestCorr * 0.78) {
+            if (danceLag != bestLag && danceCorr >= bestCorr * 0.58) {
                 bestLag = danceLag
                 bestCorr = danceCorr
             }
