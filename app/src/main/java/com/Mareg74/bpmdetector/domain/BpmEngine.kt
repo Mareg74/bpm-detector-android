@@ -96,7 +96,7 @@ class BpmEngine(private var profile: GenreProfile) {
         val displayNovelty =
             noveltyConfirmedBpm
                 ?: noveltyCandidateBpm?.takeIf {
-                    nowMs - (noveltyCandidateSinceMs ?: 0L) >= 350L
+                    nowMs - (noveltyCandidateSinceMs ?: 0L) >= 250L
                 }
                 ?: noveltyEstimate.first
         var bpm = profile.clamp(displayNovelty)
@@ -116,7 +116,7 @@ class BpmEngine(private var profile: GenreProfile) {
                         if (state == MeasureState.Resyncing) {
                             profile.lockWindowMs / 2
                         } else {
-                            800L
+                            650L
                         }
                     if (nowMs - (candidateSinceMs ?: nowMs) >= activeLockWindow) {
                         lockedBpm = bpm
@@ -144,7 +144,7 @@ class BpmEngine(private var profile: GenreProfile) {
                 } else {
                     resyncSinceMs = null
                     if (abs(probeBpm - locked) <= profile.resyncDeltaBpm / 2) {
-                        lockedBpm = locked * 0.85 + probeBpm * 0.15
+                        lockedBpm = locked * 0.78 + probeBpm * 0.22
                     }
                     beatPulse = newOnsets.isNotEmpty()
                 }
@@ -334,14 +334,14 @@ class BpmEngine(private var profile: GenreProfile) {
             }
         }
         val candidateAge = nowMs - (noveltyCandidateSinceMs ?: nowMs)
-        val requiredMs = if (noveltyConfirmedBpm == null) 800L else 1_500L
+        val requiredMs = if (noveltyConfirmedBpm == null) 700L else 1_000L
         if (noveltyCandidateBpm != null && abs(raw - noveltyCandidateBpm!!) <= tol &&
             candidateAge >= requiredMs
         ) {
             noveltyConfirmedBpm = noveltyCandidateBpm
         }
         noveltyConfirmedBpm?.let { return it }
-        if (noveltyCandidateBpm != null && candidateAge >= 350) {
+        if (noveltyCandidateBpm != null && candidateAge >= 250) {
             return noveltyCandidateBpm
         }
         return null

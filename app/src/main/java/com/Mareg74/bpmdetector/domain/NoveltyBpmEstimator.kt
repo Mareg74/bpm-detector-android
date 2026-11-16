@@ -60,7 +60,7 @@ class NoveltyBpmEstimator(
             val age = now - t
             if (age > winMs) continue
             val idx = n - 1 - (age / binMs).toInt()
-            val weight = exp(-age / 4000.0)
+            val weight = exp(-age / 3200.0)
             if (idx in 0 until n) {
                 bins[idx] = max(bins[idx], (v * weight).toFloat())
             }
@@ -182,7 +182,7 @@ class NoveltyBpmEstimator(
             }
         }
 
-        val alpha = if (genre == NoveltyAnalyzer.NoveltyGenre.Acoustic) 0.35 else 0.20
+        val alpha = if (genre == NoveltyAnalyzer.NoveltyGenre.Acoustic) 0.35 else 0.28
         smoothedBpm =
             smoothedBpm?.let { prev ->
                 if (abs(bpm - prev) > 28) bpm else (1 - alpha) * prev + alpha * bpm
