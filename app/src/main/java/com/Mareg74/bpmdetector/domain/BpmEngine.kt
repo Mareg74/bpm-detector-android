@@ -8,6 +8,18 @@ class BpmEngine(private var profile: GenreProfile) {
         val unaligned = onsets.filter { it % 1000L != 0L }
         return if (unaligned.size >= minUnaligned) unaligned else onsets
     }
+    private val noveltyGenre = noveltyGenreFor(profile)
+    private val noveltyAnalyzer = NoveltyAnalyzer(genre = noveltyGenre)
+    private val noveltyEstimator =
+        NoveltyBpmEstimator(
+            minBpm = 60.0,
+            maxBpm = 200.0,
+            genre = noveltyGenre,
+        )
+    private var noveltyCandidateBpm: Double? = null
+    private var noveltyCandidateSinceMs: Long? = null
+    private var noveltyConfirmedBpm: Double? = null
+
     private val onsetDetector = OnsetDetector(profile.onsetSensitivity)
     private val onsetTimes = ArrayDeque<Long>()
     private val rmsEnvelope = ArrayDeque<Pair<Long, Float>>()
@@ -20,11 +32,22 @@ class BpmEngine(private var profile: GenreProfile) {
     fun setProfile(p: GenreProfile) {
         profile = p
         onsetDetector.updateSensitivity(p.onsetSensitivity)
+        val g = noveltyGenreFor(p)
+        noveltyAnalyzer.setGenre(g)
+        noveltyEstimator.reset()
+        noveltyCandidateBpm = null
+        noveltyCandidateSinceMs = null
+        noveltyConfirmedBpm = null
         if (p.id != "auto") autoNarrowDone = true
     }
 
     fun reset() {
         onsetDetector.reset()
+        noveltyAnalyzer.reset()
+        noveltyEstimator.reset()
+        noveltyCandidateBpm = null
+        noveltyCandidateSinceMs = null
+        noveltyConfirmedBpm = null
         onsetTimes.clear()
         rmsEnvelope.clear()
         state = MeasureState.Starting
@@ -46,6 +69,11 @@ class BpmEngine(private var profile: GenreProfile) {
         }
         while (onsetTimes.size > 64) onsetTimes.removeFirst()
 
+        noveltyAnalyzer.push(samples, sampleRate, nowMs)?.let { novelty ->
+            noveltyEstimator.push(nowMs, novelty)
+        }
+        val noveltyEstimate = noveltyEstimator.estimate()
+
         val estimate =
             AutocorrelationTempo.estimateBpm(
                 onsetTimes.toList(),
@@ -53,7 +81,8 @@ class BpmEngine(private var profile: GenreProfile) {
                 profile.maxBpm,
             )
         var beatPulse = false
-        if (estimate == null) {
+        val gatedNovelty = noveltyEstimate?.first?.let { gateNoveltyBpm(it, nowMs) }
+        if (gatedNovelty == null && estimate == null) {
             return BpmReading(
                 bpm = if (state == MeasureState.Resyncing) lockedBpm else null,
                 confidence = 0.0,
@@ -62,7 +91,14 @@ class BpmEngine(private var profile: GenreProfile) {
                 timestampMs = nowMs,
             )
         }
-        var (bpm, conf) = estimate
+        var (bpm, conf) =
+            when {
+                gatedNovelty != null && noveltyEstimate != null -> {
+                    profile.clamp(gatedNovelty) to noveltyEstimate.second.coerceIn(0.0, 1.0)
+                }
+                estimate != null -> estimate
+                else -> noveltyEstimate!! // gated implies non-null novelty
+            }
         val refined = refineIfFastGrid(onsetTimes.toList(), bpm, conf)
         bpm = profile.clamp(refined.first)
         conf = refined.second
@@ -94,7 +130,14 @@ class BpmEngine(private var profile: GenreProfile) {
         }
         when (state) {
             MeasureState.Starting, MeasureState.Resyncing -> {
-                val lockConf = if (state == MeasureState.Resyncing) 0.42 else 0.30
+                val lockConf =
+                    if (state == MeasureState.Resyncing) {
+                        0.42
+                    } else if (noveltyConfirmedBpm != null) {
+                        0.22
+                    } else {
+                        0.30
+                    }
                 val canLock =
                     if (state == MeasureState.Resyncing) {
                         recentTempo != null && (recentTempo.second >= lockConf)
@@ -145,7 +188,7 @@ class BpmEngine(private var profile: GenreProfile) {
         val displayBpm =
             when (state) {
                 MeasureState.Starting ->
-                    if (conf >= 0.22) profile.clamp(bpm) else null
+                    if (conf >= 0.18) profile.clamp(bpm) else null
                 MeasureState.Tracking -> lockedBpm
                 MeasureState.Resyncing -> lockedBpm
                 MeasureState.Idle -> null
@@ -200,6 +243,41 @@ class BpmEngine(private var profile: GenreProfile) {
         if (refined.first > bpm * 0.9) return bpm to conf
         return refined
     }
+
+    private fun gateNoveltyBpm(
+        raw: Double,
+        nowMs: Long,
+    ): Double? {
+        val tol = 0.5
+        val sameCandidate =
+            noveltyCandidateBpm != null && abs(raw - noveltyCandidateBpm!!) <= tol
+        if (!sameCandidate) {
+            val sameConfirmed =
+                noveltyConfirmedBpm != null && abs(raw - noveltyConfirmedBpm!!) <= tol
+            if (!sameConfirmed) {
+                noveltyCandidateBpm = raw
+                noveltyCandidateSinceMs = nowMs
+            }
+        }
+        val candidateAge = nowMs - (noveltyCandidateSinceMs ?: nowMs)
+        val requiredMs = if (noveltyConfirmedBpm == null) 800L else 1_500L
+        if (noveltyCandidateBpm != null && abs(raw - noveltyCandidateBpm!!) <= tol &&
+            candidateAge >= requiredMs
+        ) {
+            noveltyConfirmedBpm = noveltyCandidateBpm
+        }
+        noveltyConfirmedBpm?.let { return it }
+        if (noveltyCandidateBpm != null && candidateAge >= 350) {
+            return noveltyCandidateBpm
+        }
+        return null
+    }
+
+    private fun noveltyGenreFor(p: GenreProfile): NoveltyAnalyzer.NoveltyGenre =
+        when (p.id) {
+            "rock_pop" -> NoveltyAnalyzer.NoveltyGenre.Rock
+            else -> NoveltyAnalyzer.NoveltyGenre.Electro
+        }
 
     private fun appendFrameRmsOnsets(samples: FloatArray, nowMs: Long) {
         if (samples.isEmpty()) return
