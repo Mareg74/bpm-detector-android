@@ -92,14 +92,14 @@ class BpmEngine(private var profile: GenreProfile) {
             }
             return pushOnsetFallback(newOnsets, nowMs, beatPulse)
         }
-        gateNoveltyBpm(noveltyEstimate.first, nowMs)
-        val displayNovelty =
+        val rawNoveltyBpm = noveltyEstimate.first
+        gateNoveltyBpm(rawNoveltyBpm, nowMs)
+        val gatedNovelty =
             noveltyConfirmedBpm
                 ?: noveltyCandidateBpm?.takeIf {
                     nowMs - (noveltyCandidateSinceMs ?: 0L) >= 250L
                 }
-                ?: noveltyEstimate.first
-        var bpm = profile.clamp(displayNovelty)
+        var bpm = profile.clamp(rawNoveltyBpm)
         var conf = noveltyEstimate.second.coerceIn(0.0, 1.0)
         if (!autoNarrowDone && noveltyConfirmedBpm != null && conf > 0.55) {
             profile = GenreCatalog.autoNarrow(bpm)
@@ -109,7 +109,12 @@ class BpmEngine(private var profile: GenreProfile) {
         when (state) {
             MeasureState.Starting, MeasureState.Resyncing -> {
                 val lockConf = if (state == MeasureState.Resyncing) 0.38 else 0.20
-                val canLock = conf >= lockConf && noveltyConfirmedBpm != null
+                val gatedReady = noveltyConfirmedBpm != null ||
+                    (
+                        gatedNovelty != null &&
+                            nowMs - (noveltyCandidateSinceMs ?: 0L) >= 400L
+                    )
+                val canLock = conf >= lockConf && gatedReady
                 if (canLock) {
                     if (candidateSinceMs == null) candidateSinceMs = nowMs
                     val activeLockWindow =
@@ -119,7 +124,7 @@ class BpmEngine(private var profile: GenreProfile) {
                             650L
                         }
                     if (nowMs - (candidateSinceMs ?: nowMs) >= activeLockWindow) {
-                        lockedBpm = bpm
+                        lockedBpm = gatedNovelty?.let { profile.clamp(it) } ?: bpm
                         state = MeasureState.Tracking
                         candidateSinceMs = null
                         resyncSinceMs = null
@@ -354,8 +359,9 @@ class BpmEngine(private var profile: GenreProfile) {
         if (
             noveltyConfirmedBpm != null &&
             noveltyCandidateBpm != null &&
-            noveltyCandidateBpm!! > noveltyConfirmedBpm!! + 5.0 &&
-            candidateAge >= 500L
+            noveltyCandidateBpm!! > noveltyConfirmedBpm!! + 3.5 &&
+            noveltyCandidateBpm!! in 148.0..170.0 &&
+            candidateAge >= 400L
         ) {
             noveltyConfirmedBpm = noveltyCandidateBpm
         }

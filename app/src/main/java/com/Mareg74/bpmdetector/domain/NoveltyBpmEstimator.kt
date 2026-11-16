@@ -119,19 +119,20 @@ class NoveltyBpmEstimator(
         }
 
         var bpm = 60_000.0 / (refinedLag * binMs)
-        if (bpm in 128.0..152.0) {
+        if (bpm in 125.0..153.5) {
             var fasterLag = refinedLag
             var fasterBpm = bpm
+            val corrFloor = if (bpm < 150.0) bestCorr * 0.82 else bestCorr * 0.86
             for (lag in lagMin..lagMax) {
                 val c = corrByLag.getOrElse(lag) { 0.0 }
-                if (c < bestCorr * 0.86) continue
+                if (c < corrFloor) continue
                 val candidate = 60_000.0 / (lag * binMs)
-                if (candidate in 148.0..166.0 && candidate > fasterBpm && lag < fasterLag) {
+                if (candidate in 149.0..170.0 && candidate > fasterBpm && lag < fasterLag) {
                     fasterLag = lag.toDouble()
                     fasterBpm = candidate
                 }
             }
-            if (fasterBpm > bpm + 3.0) {
+            if (fasterBpm > bpm + 2.5) {
                 refinedLag = fasterLag
                 if (fasterLag.toInt() - 1 >= lagMin && fasterLag.toInt() + 1 <= lagMax) {
                     val li = fasterLag.toInt()
@@ -174,7 +175,7 @@ class NoveltyBpmEstimator(
         fundamentalBpmFromPeakIntervals()?.let { fund ->
             when {
                 bpm < 112.0 && fund in 128.0..175.0 -> bpm = fund
-                fund > bpm + 4.0 && fund in 148.0..165.0 && bpm in 140.0..153.0 -> bpm = fund
+                fund > bpm + 2.5 && fund in 148.0..168.0 && bpm in 138.0..153.5 -> bpm = fund
             }
         }
 
@@ -200,10 +201,12 @@ class NoveltyBpmEstimator(
                 } else if (
                     peaksStable &&
                     bpmPeak in 130.0..175.0 &&
-                    bpm in 135.0..152.0 &&
-                    bpmPeak - bpm in 3.5..14.0
+                    bpm in 133.0..153.5 &&
+                    bpmPeak - bpm in 2.5..16.0
                 ) {
-                    bpm = bpm * 0.32 + bpmPeak * 0.68
+                    val towardPeak =
+                        if (medIv in 368.0..402.0 && bpmPeak in 149.0..165.0) 0.82 else 0.68
+                    bpm = bpm * (1.0 - towardPeak) + bpmPeak * towardPeak
                 } else {
                     when {
                         abs(bpm - bpmPeak) < 15 -> bpm = (bpm + bpmPeak) / 2
