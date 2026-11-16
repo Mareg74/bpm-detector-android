@@ -143,6 +143,12 @@ class NoveltyBpmEstimator(
         while (bpm < 60) bpm *= 2
         if (bpm < 60 || bpm > 180) return null
 
+        fundamentalBpmFromPeakIntervals()?.let { fund ->
+            if (bpm < 112.0 && fund in 128.0..175.0) {
+                bpm = fund
+            }
+        }
+
         if (beatTimes.size >= 4) {
             val intervals = mutableListOf<Double>()
             val list = beatTimes.toList()
@@ -195,7 +201,7 @@ class NoveltyBpmEstimator(
             when (genre) {
                 NoveltyAnalyzer.NoveltyGenre.Rock -> 240L
                 NoveltyAnalyzer.NoveltyGenre.Acoustic -> 280L
-                NoveltyAnalyzer.NoveltyGenre.Electro -> 200L
+                NoveltyAnalyzer.NoveltyGenre.Electro -> 135L
             }
         val values = history.map { it.second }
         val mean = values.sum() / values.size
@@ -205,7 +211,7 @@ class NoveltyBpmEstimator(
             when (genre) {
                 NoveltyAnalyzer.NoveltyGenre.Rock -> mean + 1.35 * std
                 NoveltyAnalyzer.NoveltyGenre.Acoustic -> mean + 0.9 * std
-                NoveltyAnalyzer.NoveltyGenre.Electro -> mean + 1.1 * std
+                NoveltyAnalyzer.NoveltyGenre.Electro -> mean + 0.88 * std
             }
         val win =
             when (genre) {
@@ -242,5 +248,24 @@ class NoveltyBpmEstimator(
     private fun median(values: List<Double>): Double {
         val s = values.sorted()
         return s[s.size / 2]
+    }
+
+    /** Recovers ~140–150 BPM when peak spacing looks like 1.5× or 2× the true beat period. */
+    private fun fundamentalBpmFromPeakIntervals(): Double? {
+        if (beatTimes.size < 5) return null
+        val ivs = mutableListOf<Double>()
+        val list = beatTimes.toList()
+        for (i in 1 until list.size) {
+            val iv = (list[i] - list[i - 1]).toDouble()
+            if (iv in 180.0..1200.0) ivs.add(iv)
+        }
+        if (ivs.size < 3) return null
+        val direct = ivs.filter { it in 330.0..480.0 }
+        if (direct.size >= 2) return 60_000.0 / median(direct)
+        val slow = ivs.filter { it in 580.0..780.0 }
+        if (slow.size >= 2) {
+            return 60_000.0 / (median(slow) * 2.0 / 3.0)
+        }
+        return null
     }
 }

@@ -138,9 +138,9 @@ class NoveltyAnalyzer(
                 n
             }
             NoveltyGenre.Electro -> {
-                var n = kick * 2.8 + low * 1.6 + mid * 0.9 + high * 1.1
+                var n = kick * 3.4 + low * 1.5 + mid * 0.75 + high * 0.85
                 val kickRatio = kick / (low + mid + high + 1e-3)
-                if (kickRatio > 0.35) n *= 1.25
+                if (kickRatio > 0.28) n *= 1.28
                 n
             }
         }
