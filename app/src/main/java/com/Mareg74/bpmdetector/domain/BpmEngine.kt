@@ -158,17 +158,26 @@ class BpmEngine(private var profile: GenreProfile) {
         bpm: Double,
         conf: Double,
     ): Pair<Double, Double> {
-        if (bpm < 148.0) return bpm to conf
         val median =
             AutocorrelationTempo.medianIntervalBpm(
                 onsets,
                 profile.minBpm,
                 profile.maxBpm,
             )
-        if (median != null && median.first < bpm * 0.88 && median.second >= 0.32) {
+        if (median != null && median.second >= 0.32) {
+            val gap = abs(bpm - median.first)
             val merged = (conf * 0.4 + median.second * 0.6).coerceIn(0.0, 1.0)
-            return median.first to merged
+            when {
+                bpm >= 168 && median.first < bpm * 0.88 ->
+                    return median.first to merged
+                gap > 22.0 &&
+                    median.second >= conf * 0.72 &&
+                    median.first < bpm * 0.92 &&
+                    median.first >= bpm * 0.72 ->
+                    return profile.clamp(median.first) to merged
+            }
         }
+        if (bpm < 168.0) return bpm to conf
         val refined =
             FundamentalTempo.refine(
                 onsets,
