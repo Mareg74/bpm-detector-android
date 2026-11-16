@@ -166,8 +166,8 @@ class BpmEngine(private var profile: GenreProfile) {
             when (state) {
                 MeasureState.Starting ->
                     if (conf >= 0.18) profile.clamp(bpm) else null
-                MeasureState.Tracking -> lockedBpm
-                MeasureState.Resyncing -> lockedBpm
+                MeasureState.Tracking -> profile.clamp(bpm)
+                MeasureState.Resyncing -> profile.clamp(bpm)
                 MeasureState.Idle -> null
             }
         return BpmReading(displayBpm, conf, state, beatPulse, nowMs)
