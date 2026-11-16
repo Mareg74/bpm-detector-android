@@ -87,6 +87,25 @@ class NoveltyBpmEstimator(
         }
         if (bestLag < 0 || bestCorr < 1e-6) return null
 
+        val slowBpm = 60_000.0 / (bestLag * binMs)
+        if (slowBpm < 112.0) {
+            val danceLagMin = (60_000.0 / 178.0 / binMs).toInt()
+            val danceLagMax = (60_000.0 / 128.0 / binMs).toInt()
+            var danceLag = bestLag
+            var danceCorr = bestCorr
+            for (lag in danceLagMin..danceLagMax) {
+                val c = corrByLag.getOrElse(lag) { 0.0 }
+                if (c >= bestCorr * 0.78 && c >= danceCorr) {
+                    danceCorr = c
+                    danceLag = lag
+                }
+            }
+            if (danceLag != bestLag && danceCorr >= bestCorr * 0.78) {
+                bestLag = danceLag
+                bestCorr = danceCorr
+            }
+        }
+
         var refinedLag = bestLag.toDouble()
         if (bestLag - 1 >= lagMin && bestLag + 1 <= lagMax) {
             val cL = corrByLag[bestLag - 1]
