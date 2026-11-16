@@ -74,6 +74,14 @@ class NoveltyBpmEstimator(
 
         val lagMin = (60_000.0 / 180.0 / binMs).toInt().coerceAtLeast(1)
         val lagMax = (60_000.0 / 60.0 / binMs).toInt()
+        val danceLagMin = ceil(60_000.0 / 178.0 / binMs).toInt()
+        val danceLagMax = floor(60_000.0 / 122.0 / binMs).toInt()
+        val searchLagMin =
+            if (genre == NoveltyAnalyzer.NoveltyGenre.Electro) danceLagMin.coerceAtLeast(lagMin)
+            else lagMin
+        val searchLagMax =
+            if (genre == NoveltyAnalyzer.NoveltyGenre.Electro) danceLagMax.coerceAtMost(lagMax)
+            else lagMax
         var bestLag = -1
         var bestCorr = Double.NEGATIVE_INFINITY
         val corrByLag = DoubleArray(lagMax + 1)
@@ -86,6 +94,9 @@ class NoveltyBpmEstimator(
             }
             corr /= count
             corrByLag[lag] = corr
+        }
+        for (lag in searchLagMin..searchLagMax) {
+            val corr = corrByLag[lag]
             if (corr > bestCorr) {
                 bestCorr = corr
                 bestLag = lag
@@ -94,8 +105,6 @@ class NoveltyBpmEstimator(
         if (bestLag < 0 || bestCorr < 1e-6) return null
 
         val slowBpm = 60_000.0 / (bestLag * binMs)
-        val danceLagMin = ceil(60_000.0 / 178.0 / binMs).toInt()
-        val danceLagMax = floor(60_000.0 / 122.0 / binMs).toInt()
         if (slowBpm < 112.0 || genre == NoveltyAnalyzer.NoveltyGenre.Electro) {
             var danceLag = bestLag
             var danceCorr = bestCorr
