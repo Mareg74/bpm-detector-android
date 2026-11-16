@@ -87,7 +87,7 @@ class BpmEngine(private var profile: GenreProfile) {
         }
         when (state) {
             MeasureState.Starting, MeasureState.Resyncing -> {
-                val lockConf = if (state == MeasureState.Resyncing) 0.45 else 0.35
+                val lockConf = if (state == MeasureState.Resyncing) 0.42 else 0.30
                 val canLock =
                     if (state == MeasureState.Resyncing) {
                         recentTempo != null && (recentTempo.second >= lockConf)
@@ -138,7 +138,7 @@ class BpmEngine(private var profile: GenreProfile) {
         val displayBpm =
             when (state) {
                 MeasureState.Starting ->
-                    if (conf >= 0.3) profile.clamp(bpm) else null
+                    if (conf >= 0.22) profile.clamp(bpm) else null
                 MeasureState.Tracking -> lockedBpm
                 MeasureState.Resyncing -> lockedBpm
                 MeasureState.Idle -> null
