@@ -152,15 +152,26 @@ class NoveltyBpmEstimator(
             }
             if (intervals.size >= 3) {
                 val medIv = median(intervals)
+                val meanIv = intervals.sum() / intervals.size
+                val std =
+                    kotlin.math.sqrt(
+                        intervals.sumOf { (it - meanIv) * (it - meanIv) } / intervals.size,
+                    )
+                val relStd = std / meanIv
                 val bpmPeak = 60_000.0 / medIv
-                when {
-                    abs(bpm - bpmPeak) < 15 -> bpm = (bpm + bpmPeak) / 2
-                    abs(bpm * 2 - bpmPeak) < 15 -> bpm = (bpm * 2 + bpmPeak) / 2
-                    abs(bpm - bpmPeak * 2) < 15 -> bpm = (bpm + bpmPeak * 2) / 2
-                    bpm < 105 &&
-                        bpmPeak in 130.0..178.0 &&
-                        abs(bpm * 2 - bpmPeak) < 32 ->
-                        bpm = (bpm * 2 + bpmPeak) / 2
+                val peaksStable = relStd < 0.14
+                if (peaksStable && bpmPeak in 125.0..178.0 && bpm < bpmPeak * 0.72) {
+                    bpm = bpmPeak
+                } else {
+                    when {
+                        abs(bpm - bpmPeak) < 15 -> bpm = (bpm + bpmPeak) / 2
+                        abs(bpm * 2 - bpmPeak) < 15 -> bpm = (bpm * 2 + bpmPeak) / 2
+                        abs(bpm - bpmPeak * 2) < 15 -> bpm = (bpm + bpmPeak * 2) / 2
+                        bpm < 105 &&
+                            bpmPeak in 130.0..178.0 &&
+                            abs(bpm * 2 - bpmPeak) < 32 ->
+                            bpm = (bpm * 2 + bpmPeak) / 2
+                    }
                 }
             }
         }
