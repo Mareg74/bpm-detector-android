@@ -168,6 +168,13 @@ class NoveltyBpmEstimator(
                 val peaksStable = relStd < 0.14
                 if (peaksStable && bpmPeak in 125.0..178.0 && bpm < bpmPeak * 0.72) {
                     bpm = bpmPeak
+                } else if (
+                    peaksStable &&
+                    bpmPeak in 130.0..175.0 &&
+                    bpm in 135.0..152.0 &&
+                    bpmPeak - bpm in 3.5..14.0
+                ) {
+                    bpm = bpm * 0.32 + bpmPeak * 0.68
                 } else {
                     when {
                         abs(bpm - bpmPeak) < 15 -> bpm = (bpm + bpmPeak) / 2

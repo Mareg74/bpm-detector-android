@@ -143,8 +143,19 @@ class BpmEngine(private var profile: GenreProfile) {
                     }
                 } else {
                     resyncSinceMs = null
+                    val followAlpha =
+                        when {
+                            probeBpm > locked && probeBpm - locked in 4.0..12.0 -> 0.34
+                            else -> 0.22
+                        }
                     if (abs(probeBpm - locked) <= profile.resyncDeltaBpm / 2) {
-                        lockedBpm = locked * 0.78 + probeBpm * 0.22
+                        lockedBpm = locked * (1.0 - followAlpha) + probeBpm * followAlpha
+                    } else if (
+                        probeBpm > locked &&
+                        probeBpm - locked in 4.0..12.0 &&
+                        probeConf >= 0.28
+                    ) {
+                        lockedBpm = locked * 0.62 + probeBpm * 0.38
                     }
                     beatPulse = newOnsets.isNotEmpty()
                 }
