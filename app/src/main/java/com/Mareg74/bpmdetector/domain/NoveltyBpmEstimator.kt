@@ -1,5 +1,6 @@
 package com.Mareg74.bpmdetector.domain
 
+import android.util.Log
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
@@ -18,8 +19,11 @@ class NoveltyBpmEstimator(
     private val beatTimes = ArrayDeque<Long>()
     private var smoothedBpm: Double? = null
     private var lastPeakScanAnchor = 0L
+    private var lastDebugLogMs = 0L
 
     private val noveltyWinMs = 8_000L
+    private val TAG = "BpmNovelty"
+    private val DEBUG_LOG = true
     private val binMs = 20L
 
     fun reset() {
@@ -106,11 +110,29 @@ class NoveltyBpmEstimator(
             }
         }
 
+        val peakMedIv = recentBeatMedianIntervalMs()
         var refinedLag = parabolicRefinedLag(bestLag, corrByLag, lagMin, lagMax)
         refinedLag =
-            resolveOneBinFasterDanceAlias(refinedLag, corrByLag, lagMin, lagMax)
+            resolveOneBinFasterDanceAlias(
+                refinedLag,
+                corrByLag,
+                lagMin,
+                lagMax,
+                peakMedIv,
+            )
 
         var bpm = 60_000.0 / (refinedLag * binMs)
+        refinedLag =
+            preferDanceBandLagIfPeaksSupport(
+                refinedLag,
+                bpm,
+                bestCorr,
+                corrByLag,
+                lagMin,
+                lagMax,
+                peakMedIv,
+            )
+        bpm = 60_000.0 / (refinedLag * binMs)
         if (bpm in 125.0..153.5) {
             var fasterLag = refinedLag
             var fasterBpm = bpm
@@ -118,9 +140,10 @@ class NoveltyBpmEstimator(
             for (lag in lagMin..lagMax) {
                 val c = corrByLag.getOrElse(lag) { 0.0 }
                 if (c < corrFloor) continue
-                val candidate = 60_000.0 / (lag * binMs)
-                if (candidate in 149.0..170.0 && candidate > fasterBpm && lag < fasterLag) {
-                    fasterLag = lag.toDouble()
+                val lagRefined = parabolicRefinedLag(lag, corrByLag, lagMin, lagMax)
+                val candidate = 60_000.0 / (lagRefined * binMs)
+                if (candidate in 149.0..170.0 && candidate > fasterBpm && lagRefined < fasterLag) {
+                    fasterLag = lagRefined
                     fasterBpm = candidate
                 }
             }
@@ -202,19 +225,42 @@ class NoveltyBpmEstimator(
         var alpha = if (genre == NoveltyAnalyzer.NoveltyGenre.Acoustic) 0.35 else 0.28
         smoothedBpm =
             smoothedBpm?.let { prev ->
-                if (abs(bpm - prev) > 28) {
-                    bpm
-                } else {
-                    if (genre == NoveltyAnalyzer.NoveltyGenre.Electro &&
-                        prev in 145.5..150.5 &&
-                        bpm in 151.5..157.5 &&
-                        bpm > prev
-                    ) {
-                        alpha = 0.5
+                when {
+                    abs(bpm - prev) > 28 -> bpm
+                    prev in 145.0..151.0 &&
+                        bpm in 151.0..158.0 &&
+                        bpm > prev + 4.0 -> bpm
+                    else -> {
+                        if (genre == NoveltyAnalyzer.NoveltyGenre.Electro &&
+                            prev in 145.5..150.5 &&
+                            bpm in 151.5..157.5 &&
+                            bpm > prev
+                        ) {
+                            alpha = 0.5
+                        }
+                        (1 - alpha) * prev + alpha * bpm
                     }
-                    (1 - alpha) * prev + alpha * bpm
                 }
             } ?: bpm
+        if (DEBUG_LOG) {
+            val now = history.lastOrNull()?.first ?: 0L
+            if (now - lastDebugLogMs >= 900L) {
+                lastDebugLogMs = now
+                runCatching {
+                    Log.d(
+                        TAG,
+                        "acfLag=%.2f bpm=%.1f smooth=%.1f peakIv=%s bestLag=%d"
+                            .format(
+                                refinedLag,
+                                bpm,
+                                smoothedBpm,
+                                peakMedIv?.let { "%.0f".format(it) } ?: "—",
+                                bestLag,
+                            ),
+                    )
+                }
+            }
+        }
         val confidence =
             ((bestCorr * 80).coerceIn(0.0, 1.0) + if (beatTimes.size >= 6) 0.25 else 0.0)
                 .coerceIn(0.0, 1.0)
@@ -225,11 +271,13 @@ class NoveltyBpmEstimator(
 
     private fun detectPeaks(now: Long) {
         if (history.size < 15) return
+        val refBpm = smoothedBpm ?: 128.0
         val minInterval =
             when (genre) {
                 NoveltyAnalyzer.NoveltyGenre.Rock -> 240L
                 NoveltyAnalyzer.NoveltyGenre.Acoustic -> 280L
-                NoveltyAnalyzer.NoveltyGenre.Electro -> 135L
+                NoveltyAnalyzer.NoveltyGenre.Electro ->
+                    (60_000.0 / refBpm / 2.12).toLong().coerceIn(168L, 380L)
             }
         val values = history.map { it.second }
         val mean = values.sum() / values.size
@@ -303,17 +351,68 @@ class NoveltyBpmEstimator(
         corrByLag: DoubleArray,
         lagMin: Int,
         lagMax: Int,
+        peakMedIv: Double?,
     ): Double {
-        val slowLag = refinedLag.toInt()
+        val slowLag = refinedLag.toInt().coerceIn(lagMin, lagMax)
         val fastLag = slowLag - 1
-        if (fastLag < lagMin || slowLag > lagMax) return refinedLag
+        if (fastLag < lagMin) return refinedLag
         val bpmSlow = 60_000.0 / (refinedLag * binMs)
-        val bpmFast = 60_000.0 / (fastLag * binMs)
-        if (bpmSlow !in 147.0..151.0 || bpmFast !in 152.5..157.5) return refinedLag
+        val fastRefined = parabolicRefinedLag(fastLag, corrByLag, lagMin, lagMax)
+        val bpmFast = 60_000.0 / (fastRefined * binMs)
+        if (bpmSlow !in 146.5..151.5 || bpmFast !in 150.5..158.5) return refinedLag
         val cSlow = corrByLag[slowLag]
         val cFast = corrByLag[fastLag]
-        if (cFast < cSlow * 0.68) return refinedLag
-        return parabolicRefinedLag(fastLag, corrByLag, lagMin, lagMax)
+        if (cFast < cSlow * 0.62) return refinedLag
+        return fastRefined
+    }
+
+    private fun preferDanceBandLagIfPeaksSupport(
+        refinedLag: Double,
+        bpm: Double,
+        bestCorr: Double,
+        corrByLag: DoubleArray,
+        lagMin: Int,
+        lagMax: Int,
+        peakMedIv: Double?,
+    ): Double {
+        if (bpm !in 146.5..151.5) return refinedLag
+        val peaksSayFast =
+            peakMedIv != null && peakMedIv < 400.0 && 60_000.0 / peakMedIv in 150.0..158.0
+        if (peakMedIv != null && peakMedIv > 402.0 && !peaksSayFast) return refinedLag
+        var pickLag = refinedLag
+        var pickBpm = bpm
+        var pickCorr = corrByLag[refinedLag.toInt().coerceIn(lagMin, lagMax)]
+        for (lag in lagMin..lagMax) {
+            val ref = parabolicRefinedLag(lag, corrByLag, lagMin, lagMax)
+            val candBpm = 60_000.0 / (ref * binMs)
+            if (candBpm !in 151.0..158.0) continue
+            val c = corrByLag[lag]
+            if (c < bestCorr * 0.55) continue
+            if (c + 1e-9 < pickCorr && candBpm <= pickBpm + 0.5) continue
+            if (candBpm >= pickBpm - 0.5 || c > pickCorr) {
+                pickLag = ref
+                pickBpm = candBpm
+                pickCorr = c
+            }
+        }
+        if (pickBpm > bpm + 3.0 && (peaksSayFast || cFastEnough(pickCorr, bestCorr))) {
+            return pickLag
+        }
+        return refinedLag
+    }
+
+    private fun cFastEnough(pickCorr: Double, bestCorr: Double): Boolean = pickCorr >= bestCorr * 0.72
+
+    private fun recentBeatMedianIntervalMs(): Double? {
+        if (beatTimes.size < 4) return null
+        val ivs = mutableListOf<Double>()
+        val list = beatTimes.toList()
+        for (i in 1 until list.size) {
+            val iv = (list[i] - list[i - 1]).toDouble()
+            if (iv in 280.0..520.0) ivs.add(iv)
+        }
+        if (ivs.size < 2) return null
+        return median(ivs)
     }
 
     /** Recovers ~140–150 BPM when peak spacing looks like 1.5× or 2× the true beat period. */
