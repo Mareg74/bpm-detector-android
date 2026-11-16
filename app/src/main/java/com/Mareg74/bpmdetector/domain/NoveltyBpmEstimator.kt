@@ -100,6 +100,26 @@ class NoveltyBpmEstimator(
         }
 
         var bpm = 60_000.0 / (refinedLag * binMs)
+        if (bpm < 105.0) {
+            val halfLag = (refinedLag / 2.0).toInt()
+            if (halfLag >= lagMin && halfLag <= lagMax) {
+                val corrHalf = corrByLag[halfLag]
+                if (corrHalf >= bestCorr * 0.68) {
+                    refinedLag = halfLag.toDouble()
+                    if (halfLag - 1 >= lagMin && halfLag + 1 <= lagMax) {
+                        val cL = corrByLag[halfLag - 1]
+                        val cC = corrByLag[halfLag]
+                        val cR = corrByLag[halfLag + 1]
+                        val denom = cL - 2 * cC + cR
+                        if (abs(denom) > 1e-9) {
+                            val delta = 0.5 * (cL - cR) / denom
+                            refinedLag = halfLag + max(-1.0, min(1.0, delta))
+                        }
+                    }
+                    bpm = 60_000.0 / (refinedLag * binMs)
+                }
+            }
+        }
         while (bpm > 180) bpm /= 2
         while (bpm < 60) bpm *= 2
         if (bpm < 60 || bpm > 180) return null
@@ -118,6 +138,10 @@ class NoveltyBpmEstimator(
                     abs(bpm - bpmPeak) < 15 -> bpm = (bpm + bpmPeak) / 2
                     abs(bpm * 2 - bpmPeak) < 15 -> bpm = (bpm * 2 + bpmPeak) / 2
                     abs(bpm - bpmPeak * 2) < 15 -> bpm = (bpm + bpmPeak * 2) / 2
+                    bpm < 105 &&
+                        bpmPeak in 130.0..178.0 &&
+                        abs(bpm * 2 - bpmPeak) < 32 ->
+                        bpm = (bpm * 2 + bpmPeak) / 2
                 }
             }
         }
